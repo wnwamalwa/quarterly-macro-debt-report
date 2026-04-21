@@ -54,11 +54,13 @@ library(jsonlite)
 
 if (Sys.getenv("GSHEET_SERVICE_ACCOUNT") != "") {
   # GitHub Actions / CI
-  gs4_auth(jsonlite::fromJSON(Sys.getenv("GSHEET_SERVICE_ACCOUNT")))
+  googlesheets4::gs4_auth(jsonlite::fromJSON(Sys.getenv("GSHEET_SERVICE_ACCOUNT")))
 } else {
   # Local interactive session
   gs4_auth()
 }
+
+ 
 
 
 
