@@ -48,11 +48,18 @@ library(googlesheets4)
 library(gargle)
 library(tidyverse) 
 library(kableExtra)
+library(rmarkdown)
 library(jsonlite)
 
-gs4_auth(
-  jsonlite::fromJSON(Sys.getenv("GSHEET_SERVICE_ACCOUNT"))
-)
+
+if (Sys.getenv("GSHEET_SERVICE_ACCOUNT") != "") {
+  # GitHub Actions / CI
+  gs4_auth(jsonlite::fromJSON(Sys.getenv("GSHEET_SERVICE_ACCOUNT")))
+} else {
+  # Local interactive session
+  gs4_auth()
+}
+
 
 
 sheet_url <- "https://docs.google.com/spreadsheets/d/11Y_EoYqFJOTTubbBCQkh1gV3kbX1cVQHapdzbwWUXK4"
