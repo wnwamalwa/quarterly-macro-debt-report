@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+
+# R / RStudio
+.Rhistory
+.RData
+.Rproj.user/
+.Renviron
+.Renviron.R
+
+# Quarto / LaTeX
+.quarto/
+*.log
+*.aux
+*.out
+*.toc
+
+# Outputs
+*.pdf
+
+# Secrets (VERY IMPORTANT)
+secrets/
+.httr-oauth
+*.json

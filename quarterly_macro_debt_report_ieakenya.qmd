@@ -1,0 +1,85 @@
+---
+format:
+  pdf:
+    documentclass: article
+    papersize: a4
+    fontsize: 11pt
+    geometry:
+      - left=2.5cm
+      - right=2.5cm
+      - top=2.0cm
+      - bottom=2.5cm
+    include-in-header:
+      text: |
+        \usepackage{graphicx}
+        \usepackage{setspace}
+execute:
+  echo: false
+  message: false
+  warning: false
+editor: visual
+---
+
+
+
+
+\begin{center}
+\vspace*{-1cm}
+
+\includegraphics[width=0.28\textwidth]{www/IEA_logo_2.png}
+
+\vspace{1cm}
+
+{\Large\bfseries Quarterly Macroeconomic Debt Report}
+
+\vspace{0.3cm}
+
+ 
+
+\textit{\today}
+
+\vspace{1.2cm}
+\end{center}
+
+
+## Overview
+This report presents the most recent quarterly estimates of Kenya’s
+public debt stock, expressed in Kenya Shillings (KSh billions).
+
+```{r}
+
+library(googlesheets4)
+library(gargle)
+library(tidyverse) 
+library(kableExtra)
+ 
+gs4_auth(email = "ieakenya2@gmail.com")
+
+sheet_url <- "https://docs.google.com/spreadsheets/d/11Y_EoYqFJOTTubbBCQkh1gV3kbX1cVQHapdzbwWUXK4"
+
+raw <- read_sheet(ss = sheet_url,sheet = "Debt Stock", skip = 3) %>%
+  filter(Indicator == "Total Public Debt (KSh bn)") %>%
+  select(-Indicator,-`#`) %>%    # remove label before transpose
+  t() %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column("Quarter") %>%
+  rename(Value = V1) %>%
+  mutate(Value = as.numeric(Value)) %>%
+  filter(!is.na(Value)) 
+```
+
+```{r}
+raw %>%
+  kable(
+    format = "latex",
+    booktabs = TRUE,
+    align = c("l", "r"),
+    caption = "Total Public Debt Stock (KSh Billion)") %>%
+  kable_styling(
+    latex_options = c("hold_position"),
+    font_size = 10,
+    position = "center"
+  )
+```
+
+
