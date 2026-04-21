@@ -24,27 +24,10 @@ jobs:
       # 3. Set up Quarto
       - name: Set up Quarto
         uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          tinytex: true   # ✅ THIS is the key line
 
-      # 4. Install TinyTeX (Quarto-native LaTeX)
-      - name: Install TinyTeX
-        run: |
-          quarto install tinytex
-
-      # ✅ 5. Add TinyTeX to PATH (CRITICAL)
-      - name: Add TinyTeX to PATH
-        run: |
-          echo "$HOME/.TinyTeX/bin/x86_64-linux" >> $GITHUB_PATH
-
-      # 6. Install LaTeX packages needed for PDF + XeLaTeX
-      - name: Install LaTeX packages
-        run: |
-          tlmgr install \
-            collection-fontsrecommended \
-            collection-latexrecommended \
-            collection-latexextra \
-            collection-xetex
-
-      # 7. Install system libraries & fonts (for R + XeLaTeX)
+      # 4. Install system libraries & fonts
       - name: Install system libraries
         run: |
           sudo apt-get update
@@ -55,7 +38,7 @@ jobs:
             fonts-dejavu \
             fonts-liberation
 
-      # 8. Install required R packages (FULL LIST)
+      # 5. Install required R packages
       - name: Install R packages
         run: |
           Rscript -e 'install.packages(
@@ -77,24 +60,24 @@ jobs:
             repos = "https://cloud.r-project.org"
           )'
 
-      # 9. Configure Google Sheets authentication (service account)
+      # 6. Configure Google Sheets authentication
       - name: Configure Google Sheets auth
         run: |
           echo "${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}" > service-account.json
           echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/service-account.json" >> $GITHUB_ENV
 
-      # 10. Render the Quarto PDF
+      # 7. Render the Quarto PDF
       - name: Render PDF
         run: |
           quarto render quarterly_macro_debt_report_ieakenya.qmd --to pdf
 
-      # 11. Move PDF to docs folder
+      # 8. Move PDF to docs folder
       - name: Move PDF to docs folder
         run: |
           mkdir -p docs
           mv quarterly_macro_debt_report_ieakenya.pdf docs/
 
-      # 12. Commit and push the PDF
+      # 9. Commit and push PDF
       - name: Commit PDF
         run: |
           git config user.name "github-actions"
