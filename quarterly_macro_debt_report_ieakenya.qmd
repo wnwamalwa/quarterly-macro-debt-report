@@ -20,9 +20,6 @@ execute:
 editor: visual
 ---
 
-
-
-
 \begin{center}
 \vspace*{-1cm}
 
@@ -41,10 +38,9 @@ editor: visual
 \vspace{1.2cm}
 \end{center}
 
-
 ## Overview
-This report presents the most recent quarterly estimates of Kenya’s
-public debt stock, expressed in Kenya Shillings (KSh billions).
+
+This report presents the most recent quarterly estimates of Kenya’s public debt stock, expressed in Kenya Shillings (KSh billions).
 
 ```{r}
 
@@ -52,8 +48,12 @@ library(googlesheets4)
 library(gargle)
 library(tidyverse) 
 library(kableExtra)
- 
-gs4_auth(email = "ieakenya2@gmail.com")
+library(jsonlite)
+
+gs4_auth(
+  jsonlite::fromJSON(Sys.getenv("GSHEET_SERVICE_ACCOUNT"))
+)
+
 
 sheet_url <- "https://docs.google.com/spreadsheets/d/11Y_EoYqFJOTTubbBCQkh1gV3kbX1cVQHapdzbwWUXK4"
 
@@ -81,5 +81,3 @@ raw %>%
     position = "center"
   )
 ```
-
-
