@@ -59,13 +59,25 @@ library(forcats)
 library(rmarkdown)
 library(jsonlite)
 
-if (nzchar(Sys.getenv("GSHEET_SERVICE_ACCOUNT"))) {
+# if (nzchar(Sys.getenv("GSHEET_SERVICE_ACCOUNT"))) {
+#   # GitHub Actions / CI
+#   sa <- jsonlite::fromJSON(Sys.getenv("GSHEET_SERVICE_ACCOUNT"))
+#   gs4_auth(path = sa)
+# } else {
+#   # Local interactive session
+#   gs4_auth()
+# }
+
+
+if (file.exists("gsheets.json")) {
   # GitHub Actions / CI
-  sa <- jsonlite::fromJSON(Sys.getenv("GSHEET_SERVICE_ACCOUNT"))
-  gs4_auth(path = sa)
-} else {
-  # Local interactive session
+  gs4_auth(path = "gsheets.json")
+} else if (interactive()) {
+  # Local development (browser login)
   gs4_auth()
+} else {
+  # Safety fallback
+  gs4_deauth()
 }
 
 

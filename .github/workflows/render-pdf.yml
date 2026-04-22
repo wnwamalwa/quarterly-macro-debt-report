@@ -27,7 +27,7 @@ jobs:
         with:
           tinytex: true
 
-      # 4. System dependencies required by R graphics & PDF
+      # 4. System dependencies (graphics, fonts, PDF)
       - name: Install system libraries and fonts
         run: |
           sudo apt-get update
@@ -42,7 +42,7 @@ jobs:
             fonts-dejavu \
             fonts-liberation
 
-      # 5. Install R packages explicitly (NO tidyverse meta-package)
+      # 5. Install required R packages
       - name: Install R packages
         run: |
           Rscript -e 'install.packages(
@@ -69,13 +69,10 @@ jobs:
             repos = "https://cloud.r-project.org"
           )'
 
-      # 6. Expose Google Sheets service account to CI
-      # (required for non-interactive authentication)
-      - name: Export Google Sheets service account
-        env:
-          GSHEET_SERVICE_ACCOUNT: ${{ secrets.GSHEET_SERVICE_ACCOUNT }}
+      # 6. Write Google Sheets service account to file (CRITICAL)
+      - name: Write Google Sheets service account to file
         run: |
-          echo "GSHEET_SERVICE_ACCOUNT is available to CI"
+          echo "${{ secrets.GSHEET_SERVICE_ACCOUNT }}" > gsheets.json
 
       # 7. Render the Quarto PDF
       - name: Render PDF
