@@ -45,8 +45,14 @@ This report presents the most recent quarterly estimates of Kenya’s public deb
 ```{r}
 
 library(googlesheets4)
-library(gargle)
-library(tidyverse) 
+library(gargle) 
+library(dplyr) 
+library(ggplot2) 
+library(readr) 
+library(tidyr) 
+library(purrr) 
+library(stringr) 
+library(forcats) 
 library(kableExtra)
 library(rmarkdown)
 library(jsonlite)
