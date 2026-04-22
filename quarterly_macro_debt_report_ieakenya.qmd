@@ -13,10 +13,13 @@ format:
       text: |
         \usepackage{graphicx}
         \usepackage{setspace}
+
 execute:
   echo: false
   message: false
   warning: false
+  cache: false
+
 editor: visual
 ---
 
@@ -52,8 +55,7 @@ library(readr)
 library(tidyr) 
 library(purrr) 
 library(stringr) 
-library(forcats) 
-library(kableExtra)
+library(forcats)  
 library(rmarkdown)
 library(jsonlite)
 
@@ -85,14 +87,5 @@ raw <- read_sheet(ss = sheet_url,sheet = "Debt Stock", skip = 3) %>%
 
 ```{r}
 raw %>%
-  kable(
-    format = "latex",
-    booktabs = TRUE,
-    align = c("l", "r"),
-    caption = "Total Public Debt Stock (KSh Billion)") %>%
-  kable_styling(
-    latex_options = c("hold_position"),
-    font_size = 10,
-    position = "center"
-  )
+knitr::kable()
 ```
