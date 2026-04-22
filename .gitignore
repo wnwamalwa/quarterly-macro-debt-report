@@ -1,24 +1,61 @@
+############################
 # macOS
+############################
 .DS_Store
 
+
+############################
 # R / RStudio
+############################
 .Rhistory
 .RData
 .Rproj.user/
 .Renviron
 .Renviron.R
+.Rprofile
 
-# Quarto / LaTeX
+
+############################
+# Quarto / LaTeX / PDF build
+############################
 .quarto/
+*_cache/
 *.log
 *.aux
 *.out
 *.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
 
-# Outputs
-*.pdf
 
-# Secrets (VERY IMPORTANT)
+############################
+# CI / Build outputs
+############################
+
+# Ignore everything in docs by default
+docs/*
+
+# ✅ BUT allow PDFs in docs (for GitHub Pages & dashboard downloads)
+!docs/*.pdf
+
+
+############################
+# Secrets & credentials (CRITICAL)
+############################
+.secrets/
 secrets/
 .httr-oauth
 *.json
+*.key
+*.pem
+
+
+############################
+# Temporary / misc files
+############################
+*.tmp
+*.swp
+*~
