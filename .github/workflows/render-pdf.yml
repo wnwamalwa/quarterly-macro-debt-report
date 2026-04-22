@@ -27,7 +27,7 @@ jobs:
         with:
           tinytex: true
 
-      # 4. System libraries required for R graphics + PDF
+      # 4. Install system dependencies required by R graphics / PDF
       - name: Install system libraries and fonts
         run: |
           sudo apt-get update
@@ -42,7 +42,7 @@ jobs:
             fonts-dejavu \
             fonts-liberation
 
-      # 5. Install core R packages (no tidyverse meta-package)
+      # 5. Install R packages explicitly (NO tidyverse meta-package)
       - name: Install R packages
         run: |
           Rscript -e 'install.packages(
@@ -75,7 +75,7 @@ jobs:
         run: |
           quarto render quarterly_macro_debt_report_ieakenya.qmd --to pdf
 
-      # 7. Move PDF to docs folder
+      # 7. Move output PDF to docs/
       - name: Move PDF to docs
         run: |
           mkdir -p docs
