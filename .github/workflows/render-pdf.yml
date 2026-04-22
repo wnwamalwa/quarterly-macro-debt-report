@@ -84,11 +84,16 @@ jobs:
         run: |
           quarto render quarterly_macro_debt_report_ieakenya.qmd --to pdf
 
-      # 8. Move output PDF to docs/
+   # 8. Move output PDF to docs/
       - name: Move PDF to docs
         run: |
           mkdir -p docs
           mv quarterly_macro_debt_report_ieakenya.pdf docs/
+
+      # 8.5 Pull latest main to avoid CI push conflicts
+      - name: Pull latest main
+        run: |
+          git pull --rebase origin main
 
       # 9. Commit PDF back to main
       - name: Commit PDF
