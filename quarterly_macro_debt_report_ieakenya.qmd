@@ -59,14 +59,15 @@ library(forcats)
 library(rmarkdown)
 library(jsonlite)
 
-
-if (Sys.getenv("GSHEET_SERVICE_ACCOUNT") != "") {
+if (nzchar(Sys.getenv("GSHEET_SERVICE_ACCOUNT"))) {
   # GitHub Actions / CI
-  googlesheets4::gs4_auth(jsonlite::fromJSON(Sys.getenv("GSHEET_SERVICE_ACCOUNT")))
+  sa <- jsonlite::fromJSON(Sys.getenv("GSHEET_SERVICE_ACCOUNT"))
+  gs4_auth(path = sa)
 } else {
   # Local interactive session
   gs4_auth()
 }
+
 
  
 
