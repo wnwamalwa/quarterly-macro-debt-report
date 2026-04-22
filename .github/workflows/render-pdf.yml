@@ -72,7 +72,7 @@ jobs:
       # 6. Write Google Sheets service account to file (CRITICAL)
       - name: Write Google Sheets service account to file
         run: |
-          echo "${{ secrets.GSHEET_SERVICE_ACCOUNT }}" > gsheets.json
+          echo "${{ secrets.GSHEET_SERVICE_ACCOUNT }}" | base64 --decode > gsheets.json
 
       # 7. Render the Quarto PDF
       - name: Render PDF
