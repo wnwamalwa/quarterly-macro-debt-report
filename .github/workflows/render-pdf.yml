@@ -13,17 +13,21 @@ jobs:
       contents: write
 
     steps:
+      # 1. Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2. Set up R
       - name: Set up R
         uses: r-lib/actions/setup-r@v2
 
+      # 3. Set up Quarto with TinyTeX
       - name: Set up Quarto (with TinyTeX)
         uses: quarto-dev/quarto-actions/setup@v2
         with:
           tinytex: true
 
+      # 4. Install system libraries required for R graphics + PDF
       - name: Install system libraries & fonts
         run: |
           sudo apt-get update
@@ -32,15 +36,18 @@ jobs:
             libssl-dev \
             libxml2-dev \
             libfontconfig1-dev \
+            libuv1-dev \
+            libharfbuzz-dev \
+            libfreetype6-dev \
             fonts-dejavu \
             fonts-liberation
 
+      # 5. Install R packages (excluding rmarkdown for now)
       - name: Install R packages
         run: |
           Rscript -e 'install.packages(
             c(
               "knitr",
-              "rmarkdown",
               "googlesheets4",
               "gargle",
               "jsonlite",
@@ -56,15 +63,23 @@ jobs:
             repos = "https://cloud.r-project.org"
           )'
 
+      # 6. Ensure rmarkdown is installed (CRITICAL STEP)
+      - name: Ensure rmarkdown is installed
+        run: |
+          Rscript -e 'if (!requireNamespace("rmarkdown", quietly = TRUE)) install.packages("rmarkdown", repos = "https://cloud.r-project.org")'
+
+      # 7. Render the Quarto PDF
       - name: Render PDF
         run: |
           quarto render quarterly_macro_debt_report_ieakenya.qmd --to pdf
 
+      # 8. Move PDF to docs folder
       - name: Move PDF to docs
         run: |
           mkdir -p docs
           mv quarterly_macro_debt_report_ieakenya.pdf docs/
 
+      # 9. Commit the rendered PDF back to main
       - name: Commit PDF
         run: |
           git config user.name "github-actions"
