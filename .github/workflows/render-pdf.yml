@@ -31,14 +31,15 @@ jobs:
             libcurl4-openssl-dev \
             libssl-dev \
             libxml2-dev \
-            fonts-dejavu \
+            fonts-dejavu \ 
+            libfontconfig1-dev \
             fonts-liberation
+
 
       - name: Install R packages
         run: |
           Rscript -e 'install.packages(
             c(
-              "rmarkdown",
               "knitr",
               "googlesheets4",
               "gargle",
@@ -48,12 +49,17 @@ jobs:
               "xml2",
               "systemfonts",
               "ragg",
-              "svglite",
+              "svglite", 
               "curl",
               "httr2"
             ),
             repos = "https://cloud.r-project.org"
           )'
+      
+      - name: Ensure rmarkdown is installed
+        run: |
+          Rscript -e 'if (!requireNamespace("rmarkdown", quietly = TRUE)) install.packages("rmarkdown", repos = "https://cloud.r-project.org")'
+
 
       - name: Configure Google Sheets auth
         run: |
