@@ -21,11 +21,16 @@ jobs:
       - name: Set up R
         uses: r-lib/actions/setup-r@v2
 
-      # 3. Set up Quarto with TinyTeX
-      - name: Set up Quarto (with TinyTeX)
+      # 3. Set up Quarto (PINNED, STABLE)
+      - name: Set up Quarto
         uses: quarto-dev/quarto-actions/setup@v2
         with:
-          tinytex: true
+          version: "1.4.553"
+
+      # 3b. Install TinyTeX safely (reliable in CI)
+      - name: Install TinyTeX
+        run: |
+          quarto install tinytex
 
       # 4. System dependencies (graphics, fonts, PDF)
       - name: Install system libraries and fonts
@@ -69,7 +74,7 @@ jobs:
             repos = "https://cloud.r-project.org"
           )'
 
-      # 6. Write Google Sheets service account to file (CRITICAL)
+      # 6. Write Google Sheets service account to file (CORRECT)
       - name: Write Google Sheets service account to file
         run: |
           echo "${{ secrets.GSHEET_SERVICE_ACCOUNT }}" | base64 --decode > gsheets.json
