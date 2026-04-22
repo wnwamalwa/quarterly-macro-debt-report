@@ -27,7 +27,7 @@ jobs:
         with:
           tinytex: true
 
-      # 4. Install system dependencies required by R graphics / PDF
+      # 4. System dependencies required by R graphics & PDF
       - name: Install system libraries and fonts
         run: |
           sudo apt-get update
@@ -51,7 +51,7 @@ jobs:
               "rmarkdown",
               "dplyr",
               "ggplot2",
-              "readr", 
+              "readr",
               "tidyr",
               "purrr",
               "stringr",
@@ -69,18 +69,26 @@ jobs:
             repos = "https://cloud.r-project.org"
           )'
 
-      # 6. Render the Quarto PDF
+      # 6. Expose Google Sheets service account to CI
+      # (required for non-interactive authentication)
+      - name: Export Google Sheets service account
+        env:
+          GSHEET_SERVICE_ACCOUNT: ${{ secrets.GSHEET_SERVICE_ACCOUNT }}
+        run: |
+          echo "GSHEET_SERVICE_ACCOUNT is available to CI"
+
+      # 7. Render the Quarto PDF
       - name: Render PDF
         run: |
           quarto render quarterly_macro_debt_report_ieakenya.qmd --to pdf
 
-      # 7. Move output PDF to docs/
+      # 8. Move output PDF to docs/
       - name: Move PDF to docs
         run: |
           mkdir -p docs
           mv quarterly_macro_debt_report_ieakenya.pdf docs/
 
-      # 8. Commit PDF back to main
+      # 9. Commit PDF back to main
       - name: Commit PDF
         run: |
           git config user.name "github-actions"
