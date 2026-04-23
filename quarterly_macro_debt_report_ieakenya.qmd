@@ -23,6 +23,8 @@ execute:
 editor: visual
 ---
 
+<!-- CI PUSH TEST: r Sys.time() --> 
+
 \begin{center}
 \vspace*{-1cm}
 
