@@ -27,4 +27,4 @@ branch or when the workflow is manually triggered.
 - `docs/` — rendered PDF output
 
 ## 📜 License
-This project is provided for analytical and research purposes.
+This project is provided for analytical and research purposes.# regenerate pdf
