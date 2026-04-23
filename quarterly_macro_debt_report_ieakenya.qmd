@@ -23,7 +23,13 @@ execute:
 editor: visual
 ---
 
-<!-- CI PUSH TEST: r Sys.time() --> 
+<!-- CI PUSH TEST: r Sys.time() -->  
+
+
+
+
+<!-- CI regeneration trigger -->
+
 
 \begin{center}
 \vspace*{-1cm}
@@ -104,3 +110,4 @@ raw <- read_sheet(ss = sheet_url,sheet = "Debt Stock", skip = 3) %>%
 raw %>%
 knitr::kable()
 ```
+<- name: Inspect decoded credentials (temporary) CI regeneration marker Thu Apr 23 08:34:21 EAT 2026 -->
