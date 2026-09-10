@@ -113,20 +113,44 @@ jobs:
         run: |
           echo "${{ secrets.GSHEET_SERVICE_ACCOUNT }}" | base64 --decode > gsheets.json
 
-      # 7. Render the Quarto PDF
+      # 7. Render the Quarto PDF.
+      # Output is tee'd so the failure step below can read it. pipefail keeps
+      # quarto's own exit code rather than tee's.
       - name: Render PDF
         run: |
-          quarto render quarterly_macro_debt_report_ieakenya.qmd --to pdf
+          set -o pipefail
+          quarto render quarterly_macro_debt_report_ieakenya.qmd --to pdf 2>&1 | tee render-output.log
 
-      # 7b. On failure, print the LaTeX log so the real error is visible in
-      # the Actions UI instead of only "Process completed with exit code 1".
-      - name: Show LaTeX log on failure
+      # 7b. On failure, print the logs AND re-emit the key lines as GitHub
+      # ::error:: annotations. Annotations appear on the run summary page,
+      # which is readable without expanding the job log - otherwise a failure
+      # here shows only "Process completed with exit code 1" and the actual
+      # cause is buried where it is awkward to get at.
+      - name: Surface failure details
         if: failure()
         run: |
+          emit() {
+            sed -e 's/%/%25/g' | while IFS= read -r l; do
+              [ -n "$l" ] && echo "::error::${l}"
+            done
+          }
+
+          if [ -f render-output.log ]; then
+            echo "========== render output (last 80 lines) =========="
+            tail -80 render-output.log
+            echo "========== re-emitting as annotations =========="
+            grep -iE "error|^!|undefined|cannot|failed|not found" render-output.log \
+              | tail -12 | emit
+          else
+            echo "no render-output.log - failure happened before the render step"
+          fi
+
           for f in *.log; do
             [ -f "$f" ] || continue
-            echo "===== $f (last 150 lines) ====="
-            tail -150 "$f"
+            [ "$f" = "render-output.log" ] && continue
+            echo "========== $f (last 80 lines) =========="
+            tail -80 "$f"
+            grep -iE "^!|error|undefined control|not found" "$f" | tail -8 | emit
           done
 
       # 8. Move output PDF to docs/
