@@ -102,10 +102,34 @@ jobs:
             "knitr","rmarkdown","dplyr","ggplot2","readr","tidyr",
             "purrr","stringr","forcats","googlesheets4","gargle",
             "jsonlite","xml2","systemfonts","ragg","svglite",
-            "curl","httr2","ggthemes","openxlsx"
+            "curl","httr2","ggthemes","openxlsx",
+            # kableExtra/scales/tibble are loaded by the report but were
+            # absent here: this list was written for the earlier placeholder
+            # document, which did not use them. Their absence is what made
+            # every render fail with "there is no package called kableExtra".
+            "kableExtra","scales","tibble"
           )
           new <- pkgs[!pkgs %in% rownames(installed.packages())]
           if (length(new)) install.packages(new, repos = "https://cloud.r-project.org")
+
+          # Verify every package the .qmd loads is actually installed, and
+          # stop here with a clear message if not. Without this the failure
+          # surfaces 10 minutes later as an opaque library() error.
+          src <- readLines("quarterly_macro_debt_report_ieakenya.qmd", warn = FALSE)
+          used <- unique(c(
+            gsub(".*library\\(([A-Za-z0-9._]+)\\).*", "\\1",
+                 grep("library\\(", src, value = TRUE)),
+            gsub(".*requireNamespace\\(\"([A-Za-z0-9._]+)\".*", "\\1",
+                 grep("requireNamespace\\(", src, value = TRUE))
+          ))
+          used <- used[grepl("^[A-Za-z][A-Za-z0-9._]*$", used)]
+          absent <- used[!used %in% rownames(installed.packages())]
+          if (length(absent)) {
+            stop("The report loads packages this workflow does not install: ",
+                 paste(absent, collapse = ", "),
+                 ". Add them to the pkgs vector above.")
+          }
+          cat("All", length(used), "packages required by the report are installed.\n")
           '
 
       # 6. Write Google Sheets service account to file
