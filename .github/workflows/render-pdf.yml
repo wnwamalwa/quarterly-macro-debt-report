@@ -37,38 +37,47 @@ jobs:
           version: "1.4.553"
 
       # 3b. Cache TinyTeX.
-      # NOTE the version marker in the key. The old key was a bare
-      # "tinytex-${{ runner.os }}", which never changed, so every run restored
-      # the TeX Live that was current when the cache was first written. Once
-      # that falls behind the CTAN remote, `tlmgr install` refuses with
-      # "Local TeX Live is older than remote repository", and any LaTeX
-      # package the report newly needs can no longer be fetched mid-render.
-      # Bump -v2 to -v3 (etc.) whenever a fresh TeX Live is wanted.
-      # Deliberately NO restore-keys: a prefix fallback would just restore the
-      # stale cache again and reintroduce the problem.
+      # Quarto installs TinyTeX into the XDG data dir on Linux
+      # (~/.local/share/TinyTeX), NOT ~/.TinyTeX. The original key cached a
+      # path that never existed, so TinyTeX was silently reinstalled on every
+      # single run. Both locations are listed so a hit works either way.
+      # Bump -v3 to -v4 (etc.) to force a fresh TeX Live.
       - name: Cache TinyTeX
         uses: actions/cache@v4
         with:
-          path: ~/.TinyTeX
-          key: tinytex-${{ runner.os }}-v2
+          path: |
+            ~/.TinyTeX
+            ~/.local/share/TinyTeX
+          key: tinytex-${{ runner.os }}-v3
 
       # 3c. Install TinyTeX safely (skips if cached)
       - name: Install TinyTeX
         run: |
           quarto install tinytex
 
-      # 3d. Install the LaTeX packages this report depends on, explicitly.
-      # Relying on TinyTeX's mid-render auto-install means a failure here
-      # surfaces as an opaque LaTeX error instead of a clear one, so the
-      # dependencies are declared up front. Cheap no-op when already present.
+      # 3d. Make sure the LaTeX packages this report needs are present.
+      # tlmgr is LOCATED rather than assumed -- hardcoding a bin path is what
+      # broke run #56. This step can never fail the build: if tlmgr cannot be
+      # found, TinyTeX's mid-render auto-install remains the fallback and the
+      # render step reports the real error instead of this one masking it.
       - name: Install required LaTeX packages
+        continue-on-error: true
         run: |
-          export PATH="$HOME/.TinyTeX/bin/x86_64-linux:$PATH"
-          tlmgr update --self
-          tlmgr install \
-            tabularx enumitem booktabs colortbl xcolor caption \
-            titlesec multicol fancyhdr lastpage float setspace \
-            graphics geometry
+          set +e
+          TLMGR="$(command -v tlmgr)"
+          if [ -z "$TLMGR" ]; then
+            for d in "$HOME"/.TinyTeX/bin/* "$HOME"/.local/share/TinyTeX/bin/*; do
+              if [ -x "$d/tlmgr" ]; then TLMGR="$d/tlmgr"; break; fi
+            done
+          fi
+          echo "tlmgr resolved to: ${TLMGR:-<not found>}"
+          if [ -n "$TLMGR" ]; then
+            "$TLMGR" update --self
+            "$TLMGR" install \
+              tabularx enumitem booktabs colortbl xcolor caption \
+              titlesec multicol fancyhdr lastpage float setspace
+          fi
+          exit 0
 
       # 4. System dependencies (graphics, fonts, PDF)
       - name: Install system libraries and fonts
@@ -108,6 +117,17 @@ jobs:
       - name: Render PDF
         run: |
           quarto render quarterly_macro_debt_report_ieakenya.qmd --to pdf
+
+      # 7b. On failure, print the LaTeX log so the real error is visible in
+      # the Actions UI instead of only "Process completed with exit code 1".
+      - name: Show LaTeX log on failure
+        if: failure()
+        run: |
+          for f in *.log; do
+            [ -f "$f" ] || continue
+            echo "===== $f (last 150 lines) ====="
+            tail -150 "$f"
+          done
 
       # 8. Move output PDF to docs/
       - name: Move PDF to docs
