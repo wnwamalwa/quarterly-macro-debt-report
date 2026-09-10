@@ -9,105 +9,2224 @@ format:
       - right=2.5cm
       - top=2.0cm
       - bottom=2.5cm
+    colorlinks: true
+    linkcolor: "blue"
+    urlcolor: "blue"
     include-in-header:
       text: |
         \usepackage{graphicx}
         \usepackage{setspace}
+        \usepackage{booktabs}
+        \usepackage{colortbl}
+        \usepackage{xcolor}
+        \usepackage{float}
+        \usepackage{fancyhdr}
+        \usepackage{lastpage}
+        \usepackage{caption}
+        \usepackage{titlesec}
+        \usepackage{multicol}
+        \usepackage{tabularx}
+        \usepackage{enumitem}
+
+        % ── IEA brand colours ──
+        \definecolor{ieagreen}{HTML}{2E7D32}
+        \definecolor{ieagold}{HTML}{C8A415}
+        \definecolor{ieadark}{HTML}{1B5E20}
+        \definecolor{iearedflag}{HTML}{C62828}
+        \definecolor{lightgray}{HTML}{F5F5F5}
+        \definecolor{tablegray}{HTML}{EEEEEE}
+
+        % ── Section styling ──
+        \titleformat{\section}
+          {\Large\bfseries\color{ieagreen}}
+          {\thesection}{1em}{}[\vspace{0.2em}\color{ieagold}\hrule\vspace{0.5em}]
+        \titleformat{\subsection}
+          {\large\bfseries\color{ieadark}}
+          {\thesubsection}{1em}{}
+
+        % ── Header / footer ──
+        \pagestyle{fancy}
+        \fancyhf{}
+        \fancyfoot[C]{\small\color{gray} Page \thepage\ of \pageref{LastPage}}
+        \renewcommand{\headrulewidth}{0pt}
+        \renewcommand{\footrulewidth}{0.4pt}
+
+        % ── Spacing ──
+        \captionsetup[table]{skip=6pt, singlelinecheck=false, justification=raggedright}
+        \captionsetup[figure]{skip=6pt}
 
 execute:
   echo: false
   message: false
   warning: false
   cache: false
+  fig-align: center
 
 editor: visual
 ---
 
-<!-- CI PUSH TEST: r Sys.time() -->  
+```{r setup}
+#| label: setup
 
+library(googlesheets4)
+library(gargle)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(tidyr)
+library(purrr)
+library(stringr)
+library(forcats)
+library(knitr)
+library(kableExtra)
+library(scales)
+library(httr2)
+library(jsonlite)
 
+# ── Authentication ──
+# Looks for service-account credentials in the same place CI writes them
+# (gsheets.json at the project root, created from the GSHEET_SERVICE_ACCOUNT
+# secret) and falls back to the local .secrets/ folder used in development.
+# Without this, a non-interactive render (quarto render / CI) silently fell
+# back to gs4_deauth(), which fails against a private sheet with an opaque
+# low-level curl error instead of a clear auth message.
+local_secret_files <- if (dir.exists(".secrets")) {
+  list.files(".secrets", pattern = "\\.json$", full.names = TRUE)
+} else {
+  character(0)
+}
+credential_candidates <- c("gsheets.json", local_secret_files)
+credential_candidates <- credential_candidates[file.exists(credential_candidates)]
 
+if (length(credential_candidates) > 0) {
+  gs4_auth(path = credential_candidates[1])
+} else if (interactive()) {
+  gs4_auth()
+} else {
+  warning(
+    "No Google Sheets service-account credentials found (looked for ",
+    "'gsheets.json' and '.secrets/*.json') and this is a non-interactive ",
+    "render, so falling back to unauthenticated access. If the source ",
+    "sheet is private, the read below will fail. To fix locally, copy your ",
+    "service-account JSON to 'gsheets.json' at the project root (same file ",
+    "CI creates from the GSHEET_SERVICE_ACCOUNT secret).",
+    call. = FALSE
+  )
+  gs4_deauth()
+}
 
-<!-- CI regeneration trigger -->
+# ── Google Sheet URL ──
+sheet_url <- "https://docs.google.com/spreadsheets/d/11Y_EoYqFJOTTubbBCQkh1gV3kbX1cVQHapdzbwWUXK4"
 
+# ══════════════════════════════════════════════════════════════════
+# LIVE PUBLIC DEBT API -- Kenya Debt Counter (api.kenyadebtcounter.or.ke)
+# Reference list of all known endpoints. The "Key Metrics at a Glance"
+# charts below pull their data from /api/debt/historical, topped up with
+# /api/debt/current (linearly interpolated across any gap months) so the
+# line runs right up to today rather than stopping at the last historical
+# row; everything else in this report still reads from the Google Sheet
+# above. Kept here for reference and for wiring up additional charts later.
+# ══════════════════════════════════════════════════════════════════
+# Base URL:
+#   https://api.kenyadebtcounter.or.ke        (production)
+#   http://localhost:8000                     (local dev)
+#
+# Debt
+#   GET https://api.kenyadebtcounter.or.ke/api/debt/current
+#   GET https://api.kenyadebtcounter.or.ke/api/debt/growth?unit={sec|min|hour|day|week|month|year}
+#   GET https://api.kenyadebtcounter.or.ke/api/debt/historical
+#   GET https://api.kenyadebtcounter.or.ke/api/debt/ratio
+#
+# Expenditure / finance
+#   GET https://api.kenyadebtcounter.or.ke/api/expenditure/current
+#   GET https://api.kenyadebtcounter.or.ke/api/expenditure/growth?unit=...
+#   GET https://api.kenyadebtcounter.or.ke/api/expenditure/historical
+#   GET https://api.kenyadebtcounter.or.ke/api/finance/historical
+#
+# Indicators
+#   GET https://api.kenyadebtcounter.or.ke/api/indicators/current
+#   GET https://api.kenyadebtcounter.or.ke/api/indicators/growth?unit=...
+#   GET https://api.kenyadebtcounter.or.ke/api/indicators/gdp/historical
+#   GET https://api.kenyadebtcounter.or.ke/api/indicators/population/historical
+#   GET https://api.kenyadebtcounter.or.ke/api/indicators/forex/historical
+#   GET https://api.kenyadebtcounter.or.ke/api/indicators/interest/historical
+#   GET https://api.kenyadebtcounter.or.ke/api/population/current
+#
+# Combined / dashboard
+#   GET  https://api.kenyadebtcounter.or.ke/api/dashboard/all
+#   POST https://api.kenyadebtcounter.or.ke/api/simulate
+#
+# AI features
+#   POST https://api.kenyadebtcounter.or.ke/api/ai/chat
+#   GET  https://api.kenyadebtcounter.or.ke/api/ai/suggestions
+#
+# Visitor analytics (site usage tracking, not debt data)
+#   POST https://api.kenyadebtcounter.or.ke/api/visitor/start
+#   POST https://api.kenyadebtcounter.or.ke/api/visitor/pageview
+#   POST https://api.kenyadebtcounter.or.ke/api/visitor/action
+#   GET  https://api.kenyadebtcounter.or.ke/api/visitor/metrics/aggregated
+#   GET  https://api.kenyadebtcounter.or.ke/api/visitor/metrics/timeline?days=
+#   GET  https://api.kenyadebtcounter.or.ke/api/visitor/metrics/top-pages?limit=
+#   POST https://api.kenyadebtcounter.or.ke/api/log/visit
+#
+# Utility
+#   GET https://api.kenyadebtcounter.or.ke/
+#   GET https://api.kenyadebtcounter.or.ke/health
+#
+# External third-party APIs called by the backend itself (not ours to query):
+#   https://api.anthropic.com/v1/messages   -- AI chat/suggestions
+#   https://ipapi.co/json/                  -- visitor geolocation (frontend)
+#   https://www.centralbank.go.ke/forex/    -- scraped for live forex (not a JSON API)
+
+DEBT_API_HISTORICAL <- "https://api.kenyadebtcounter.or.ke/api/debt/historical"
+DEBT_API_CURRENT    <- "https://api.kenyadebtcounter.or.ke/api/debt/current"
+
+# ══════════════════════════════════════════════════════════════════
+# IEA COLOUR PALETTE
+# ══════════════════════════════════════════════════════════════════
+iea_green  <- "#2E7D32"
+iea_gold   <- "#C8A415"
+iea_dark   <- "#1B5E20"
+iea_light  <- "#81C784"
+iea_red    <- "#C62828"
+iea_blue   <- "#1565C0"
+iea_orange <- "#EF6C00"
+iea_gray   <- "#616161"
+
+theme_iea <- function() {
+  theme_minimal(base_size = 11) +
+    theme(
+      plot.title       = element_text(face = "bold", colour = iea_dark, size = 13),
+      plot.subtitle    = element_text(colour = "gray40", size = 10),
+      axis.title       = element_text(colour = "gray30", size = 10),
+      axis.text        = element_text(colour = "gray40"),
+      panel.grid.major = element_line(colour = "gray90"),
+      panel.grid.minor = element_blank(),
+      legend.position  = "bottom",
+      plot.caption     = element_text(colour = "gray60", size = 8, hjust = 0)
+    )
+}
+
+# ══════════════════════════════════════════════════════════════════
+# HELPER: read one indicator row and pivot long
+# ══════════════════════════════════════════════════════════════════
+read_indicator <- function(sheet_name, indicator_label, skip = 3) {
+  raw <- read_sheet(ss = sheet_url, sheet = sheet_name, skip = skip)
+  raw %>%
+    filter(Indicator == indicator_label) %>%
+    select(-any_of(c("Indicator", "#"))) %>%
+    t() %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column("Quarter") %>%
+    rename(Value = V1) %>%
+    mutate(Value = as.numeric(Value)) %>%
+    filter(!is.na(Value))
+}
+
+# Wrapper that returns NULL on failure (sheet or indicator missing)
+try_indicator <- function(sheet_name, indicator_label, skip = 3) {
+  tryCatch(read_indicator(sheet_name, indicator_label, skip),
+           error = function(e) NULL)
+}
+
+# ══════════════════════════════════════════════════════════════════
+# ┌──────────────────────────────────────────────────────────────┐
+# │  CONFIGURE YOUR SHEET NAMES & INDICATOR LABELS BELOW        │
+# │                                                              │
+# │  Adjust these strings to match your Google Sheet exactly.    │
+# │  If a sheet or indicator doesn't exist, the report will      │
+# │  gracefully skip that section.                               │
+# └──────────────────────────────────────────────────────────────┘
+# ══════════════════════════════════════════════════════════════════
+
+# ── 1. DEBT STOCK ──
+# This is the one sheet read the whole report depends on, so failures here
+# get a diagnostic message instead of a raw curl/httr stack trace.
+df_total <- tryCatch(
+  read_indicator("Debt Stock", "Total Public Debt (KSh bn)"),
+  error = function(e) {
+    stop(
+      "\n\nFailed to read the 'Debt Stock' sheet from Google Sheets.\n",
+      "This is almost always one of:\n",
+      "  1. Missing/invalid credentials  -> place a service-account JSON at \n",
+      "     'gsheets.json' (project root) or in '.secrets/'.\n",
+      "  2. The service account lacks Viewer access to the sheet -> share\n",
+      "     the sheet with the client_email in your service-account JSON.\n",
+      "  3. No network access from this machine/runner right now.\n\n",
+      "Sheet: ", sheet_url, "\n",
+      "Original error: ", conditionMessage(e), "\n",
+      call. = FALSE
+    )
+  }
+)
+df_dom   <- try_indicator("Debt Stock", "Domestic Debt (KSh bn)")
+df_ext   <- try_indicator("Debt Stock", "External Debt (KSh bn)")
+
+# ── 2. GDP ──
+df_gdp   <- try_indicator("GDP", "GDP (KSh bn)")
+df_gdp_g <- try_indicator("GDP", "GDP Growth Rate (%)")
+
+# ── 3. FISCAL / FINANCE ──
+df_rev   <- try_indicator("Finance", "Revenue (KSh bn)")
+df_exp   <- try_indicator("Finance", "Expenditure (KSh bn)")
+
+# ── 4. FOREX ──
+df_forex <- try_indicator("Forex", "KES/USD")
+
+# ── 5. WEIGHTED AVERAGE COST OF DEBT ──
+df_wacd_dom <- try_indicator("WACD", "Domestic Interest Rate (%)")
+df_wacd_ext <- try_indicator("WACD", "External Interest Rate (%)")
+
+# ── 6. POPULATION ──
+df_pop   <- try_indicator("Population", "Population (millions)")
+
+# ══════════════════════════════════════════════════════════════════
+# REPORTING PERIOD
+# ══════════════════════════════════════════════════════════════════
+# Calendar quarters: Q1 = Jan-Mar, Q2 = Apr-Jun, Q3 = Jul-Sep, Q4 = Oct-Dec.
+# This report always covers the most recently COMPLETED quarter relative to
+# the render date -- i.e. whatever quarter we are currently *in* is not yet
+# finished, so the report looks one quarter back.
+# Example: rendered on 9 Sep 2026 (which falls in Q3, Jul-Sep) -> report
+# covers Q2 2026 (Apr-Jun 2026).
+get_reporting_quarter <- function(ref_date = Sys.Date()) {
+  yr <- as.integer(format(ref_date, "%Y"))
+  mo <- as.integer(format(ref_date, "%m"))
+
+  current_q <- ceiling(mo / 3)   # 1-4, the quarter ref_date falls in
+  q         <- current_q - 1
+  y         <- yr
+  if (q == 0) { q <- 4; y <- yr - 1 }
+
+  q_labels <- c("Q1", "Q2", "Q3", "Q4")
+  q_ranges <- c("January \u2013 March", "April \u2013 June",
+                "July \u2013 September", "October \u2013 December")
+
+  list(
+    quarter = q_labels[q],
+    year    = y,
+    label   = sprintf("%s %d", q_labels[q], y),
+    range   = sprintf("%s %d", q_ranges[q], y)
+  )
+}
+
+reporting_period <- get_reporting_quarter()
+
+# ══════════════════════════════════════════════════════════════════
+# COMBINE DEBT DATA
+# ══════════════════════════════════════════════════════════════════
+df_all <- df_total %>% rename(Total = Value)
+
+has_composition <- !is.null(df_dom) && !is.null(df_ext)
+if (!is.null(df_dom)) df_all <- df_all %>% left_join(df_dom %>% rename(Domestic = Value), by = "Quarter")
+if (!is.null(df_ext)) df_all <- df_all %>% left_join(df_ext %>% rename(External = Value), by = "Quarter")
+
+# ── Derived debt metrics ──
+n <- nrow(df_all)
+latest_q       <- df_all$Quarter[n]
+latest_total   <- df_all$Total[n]
+prev_total     <- if (n >= 2) df_all$Total[n - 1] else NA
+qoq_change     <- latest_total - prev_total
+qoq_pct        <- (qoq_change / prev_total) * 100
+yoy_total      <- if (n >= 5) df_all$Total[n - 4] else NA
+yoy_change_pct <- if (!is.na(yoy_total)) ((latest_total - yoy_total) / yoy_total) * 100 else NA
+
+if (has_composition) {
+  latest_dom <- df_all$Domestic[n]
+  latest_ext <- df_all$External[n]
+  dom_share  <- (latest_dom / latest_total) * 100
+  ext_share  <- (latest_ext / latest_total) * 100
+}
+
+# ── Feature flags ──
+has_gdp     <- !is.null(df_gdp)
+has_gdp_g   <- !is.null(df_gdp_g)
+has_fiscal  <- !is.null(df_rev) && !is.null(df_exp)
+has_forex   <- !is.null(df_forex)
+has_wacd    <- !is.null(df_wacd_dom) && !is.null(df_wacd_ext)
+has_pop     <- !is.null(df_pop)
+
+# ── Debt-to-GDP ──
+has_debt_gdp <- FALSE
+if (has_gdp) {
+  df_debt_gdp <- df_all %>%
+    select(Quarter, Total) %>%
+    inner_join(df_gdp %>% rename(GDP = Value), by = "Quarter") %>%
+    mutate(Debt_to_GDP = round((Total / GDP) * 100, 1))
+  if (nrow(df_debt_gdp) > 0) has_debt_gdp <- TRUE
+}
+
+# ── Debt per capita ──
+has_debt_pc <- FALSE
+if (has_pop) {
+  df_debt_pc <- df_all %>%
+    select(Quarter, Total) %>%
+    inner_join(df_pop %>% rename(Pop = Value), by = "Quarter") %>%
+    mutate(Debt_per_Capita_KSh = round((Total * 1e9) / (Pop * 1e6), 0))
+  if (nrow(df_debt_pc) > 0) has_debt_pc <- TRUE
+}
+
+# ── Fiscal balance ──
+has_fiscal_joined <- FALSE
+if (has_fiscal) {
+  df_fiscal <- df_rev %>%
+    rename(Revenue = Value) %>%
+    inner_join(df_exp %>% rename(Expenditure = Value), by = "Quarter") %>%
+    mutate(Deficit = Expenditure - Revenue)
+  if (nrow(df_fiscal) > 0) has_fiscal_joined <- TRUE
+}
+
+# ── WACD combined ──
+has_wacd_joined <- FALSE
+if (has_wacd) {
+  df_wacd_combined <- df_wacd_dom %>%
+    rename(Dom_Rate = Value) %>%
+    inner_join(df_wacd_ext %>% rename(Ext_Rate = Value), by = "Quarter")
+  if (nrow(df_wacd_combined) > 0) has_wacd_joined <- TRUE
+}
+
+# ── Tail helper for chart trimming ──
+tail_factor <- function(df, max_n = 12) {
+  if (nrow(df) > max_n) df <- tail(df, max_n)
+  df %>% mutate(Quarter = factor(Quarter, levels = Quarter))
+}
+
+# ── Full-width table renderer ───────────────────────────────────────────────
+# kableExtra's own full_width = TRUE emits a `tabu` environment, and `tabu`
+# is broken under modern TeX Live/LuaHBTeX (undefined \tabu@cleanup at
+# \end{tabu}) -- which is why every kable() in this report is pinned to
+# full_width = FALSE and ends up squeezed in the middle of the page. This
+# renders the same booktabs look by hand with `tabularx` instead: the first
+# column sizes to its content and the remaining columns share the leftover
+# width equally as centred X columns, so the table always spans the full
+# text block margin to margin.
+iea_tex_escape <- function(x) gsub("([&%$#_])", "\\\\\\1", as.character(x))
+
+# raw_cols names columns whose cells are already LaTeX (e.g. a \textcolor
+# status flag) and must therefore be passed through unescaped.
+iea_fullwidth_table <- function(df, bold_rows = integer(0),
+                                 header_bg = "ieagreen", bold_bg = "E8F5E9",
+                                 raw_cols = character(0), caption = NULL,
+                                 space_above = "1em") {
+  cn      <- names(df)
+  ncols   <- length(cn)
+  colspec <- paste0("l", paste(rep(">{\\centering\\arraybackslash}X", ncols - 1L), collapse = ""))
+
+  hdr <- paste0(
+    "\\rowcolor{", header_bg, "}",
+    paste(sprintf("\\textcolor{white}{\\textbf{%s}}", iea_tex_escape(cn)), collapse = " & "),
+    " \\\\"
+  )
+
+  rows <- vapply(seq_len(nrow(df)), function(i) {
+    vals  <- unlist(df[i, ], use.names = FALSE)
+    cells <- ifelse(cn %in% raw_cols, as.character(vals), iea_tex_escape(vals))
+    if (i %in% bold_rows) {
+      paste0("\\rowcolor[HTML]{", bold_bg, "}",
+             paste(sprintf("\\textbf{%s}", cells), collapse = " & "), " \\\\")
+    } else {
+      paste0(paste(cells, collapse = " & "), " \\\\")
+    }
+  }, character(1))
+
+  # Caption sits above the table and consumes the LaTeX table counter, so
+  # these hand-built tables stay in sequence with any kable() captions.
+  cap <- if (is.null(caption)) "" else
+    sprintf("\\captionof{table}{%s}\n", iea_tex_escape(caption))
+
+  paste0(
+    "\n", if (is.null(space_above)) "" else sprintf("\\vspace{%s}\n", space_above),
+    cap,
+    "\\begin{tabularx}{\\textwidth}{", colspec, "}\n",
+    "\\toprule\n", hdr, "\n\\midrule\n",
+    paste(rows, collapse = "\n"), "\n",
+    "\\bottomrule\n\\end{tabularx}\n\n"
+  )
+}
+
+# ── Value of a series at an exact date ──────────────────────────────────────
+# The live debt series carries monthly points dated to the 1st of the month,
+# plus occasional genuine reported dates (30 June, the fiscal year end).
+# Snapping backwards to the closest earlier point therefore reads "as at end
+# of March" off the 1 March point -- a full month early. Interpolating
+# linearly to the exact target date fixes that, and where a real point
+# already sits on the target date (30 June) it is returned untouched.
+# Same calendar date n years earlier, used for the decade-ago comparisons in
+# every figure's narrative. Shared here so no figure depends on another
+# figure's chunk having run successfully first.
+years_back_date <- function(d, n) {
+  tryCatch(as.Date(paste0(as.integer(format(d, "%Y")) - n, format(d, "-%m-%d"))),
+           error = function(e) d - n * 365.25)
+}
+
+value_at_date <- function(df, target_date, cols) {
+  d   <- df[order(df$Quarter), ]
+  out <- lapply(cols, function(cl) {
+    y  <- d[[cl]]
+    ok <- is.finite(y)
+    if (sum(ok) < 2) return(NA_real_)
+    approx(x = as.numeric(d$Quarter[ok]), y = y[ok],
+           xout = as.numeric(target_date), rule = 2)$y
+  })
+  names(out) <- cols
+  out$Quarter <- target_date
+  as.data.frame(out)
+}
+```
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+<!-- TITLE PAGE                                                 -->
+
+<!-- ═══════════════════════════════════════════════════════════ -->
 
 \begin{center}
 \vspace*{-1cm}
 
-\includegraphics[width=0.28\textwidth]{www/IEA_logo_2.png}
+\includegraphics[width=0.25\textwidth]{www/IEA_logo_2.png}
 
-\vspace{1cm}
+\vspace{0.6cm}
 
-{\Large\bfseries Quarterly Macroeconomic Debt Report}
+{\LARGE\bfseries\color{ieagreen} Quarterly Macroeconomic Debt Report}
+
+\vspace{0.2cm}
+\end{center}
+
+```{r title-period, results='asis'}
+cat(sprintf(
+  "\\begin{center}\n{\\large\\color{gray} %s (%s)}\n\n\\vspace{0.15cm}\n\n\\textit{Published %s}\n\\end{center}\n",
+  reporting_period$quarter, reporting_period$range,
+  format(Sys.Date(), "%d %B %Y")
+))
+```
+
+\begin{center}
+\vspace{0.3cm}
+\textcolor{ieagold}{\rule{0.6\textwidth}{1.5pt}}
+\vspace{0.1cm}
+\end{center}
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+<!-- 2. KEY METRICS AT A GLANCE                                 -->
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+```{r treasury-inputs}
+# ── National Treasury inputs ────────────────────────────────────────────────
+# Everything in this report that is NOT derived from the live debt counter
+# comes from published National Treasury / KNBS documents -- the Medium Term
+# Debt Strategy (MTDS), the annual Budget Estimates, and national accounts.
+# Those are periodic publications, not an API, so the figures are declared
+# here rather than fetched. They are defined early because both the Figure 3
+# commentary and the Debt Sustainability Analysis section read from them.
+# UPDATE THIS BLOCK when a new MTDS, Budget Estimates or GDP release lands.
+mtds_year   <- "2026"
+budget_year <- "2026/27"
+
+# Debt Sustainability Analysis thresholds vs latest assessed values (MTDS).
+dsa_indicators <- data.frame(
+  Indicator = c("PV of Public Debt / GDP",
+                "PV of External Debt / Exports",
+                "External Debt Service / Exports",
+                "External Debt Service / Revenue"),
+  Threshold = c(55.0, 180.0, 15.0, 18.0),
+  Latest    = c(65.3, 182.2, 22.5, 20.6),
+  stringsAsFactors = FALSE, check.names = FALSE
+)
+
+# Weighted average interest rate on each debt class (MTDS).
+wair_domestic <- 13.0
+wair_external <- 3.9
+
+# Share of the year's debt service budget, and its total (Budget Estimates).
+service_domestic_share <- 70.6
+service_external_share <- 29.4
+service_total_trillion <- 2.3
+
+# Pending bills -- arrears already owed to suppliers, contractors and
+# counties. These sit OUTSIDE the headline debt stock reported by the debt
+# counter, but are a real claim that is typically settled by borrowing.
+pending_bills_trillion <- 0.8
+
+# Latest real GDP growth. Preferred from the Google Sheet's GDP Growth Rate
+# indicator when it is present; this declared value is the fallback.
+# >>> CONFIRM against the latest KNBS release before publishing. <<<
+real_gdp_growth_fallback <- 4.7
+
+# MTDS projection horizon quoted in the closing narrative.
+mtds_above_benchmark_until <- "2029"
+```
+
+\vspace{-1.2em}
+
+# Key Metrics at a Glance
+
+\vspace{-1.5em}
+
+```{r key-metrics-data}
+# Pulls the FULL debt history (every data point, not just recent quarters --
+# confirmed 324 monthly points, Sep 1999 to Jul 2026) live from the Kenya
+# Debt Counter public API (DEBT_API_HISTORICAL, see the endpoint list near
+# the top of this file). The API returns raw KSh (not billions), so values
+# are divided by 1e9 here to match the "KSh Billions" scale used everywhere
+# else in this report. Falls back to the Google Sheet data (df_all, full
+# history, uncapped) if the API is unreachable at render time, so a network
+# hiccup here doesn't break the whole report. Both charts below (Total, and
+# Domestic vs External) are built from this same pull.
+api_debt_hist <- tryCatch({
+  resp <- request(DEBT_API_HISTORICAL) %>%
+    req_user_agent("IEA-Kenya-QuarterlyReport/1.0 (+quarto render)") %>%
+    req_timeout(25) %>%
+    req_perform()
+  parsed <- resp_body_json(resp, simplifyVector = TRUE)
+  if (!isTRUE(parsed$success) || is.null(parsed$data) || nrow(parsed$data) == 0) {
+    stop("API responded but returned no usable data (success=", parsed$success, ")")
+  }
+  parsed$data %>%
+    as_tibble() %>%
+    mutate(date = as.Date(date)) %>%
+    arrange(date) %>%
+    mutate(month_label = format(date, "%Y-%m")) %>%
+    # The API can carry more than one row for the same calendar month (e.g.
+    # a mid-month update) -- keep only the latest row per month.
+    group_by(month_label) %>%
+    slice_tail(n = 1) %>%
+    ungroup() %>%
+    arrange(date) %>%
+    transmute(
+      Quarter  = date,   # real Date (1st of month) -- drives scale_x_date below
+      Total    = round(as.numeric(total)    / 1e9, 2),
+      Domestic = round(as.numeric(domestic) / 1e9, 2),
+      External = round(as.numeric(external) / 1e9, 2)
+    )
+}, error = function(e) {
+  message(
+    "Live debt API unavailable (status: ",
+    tryCatch(class(e)[1], error = function(e2) "unknown"), " -- ",
+    conditionMessage(e), ") -- falling back to sheet data."
+  )
+  NULL
+})
+
+# Sheet quarters are labelled like "Q1 2026" -- convert to the first day of
+# that quarter's first month so the fallback path plots on the same real
+# date scale as the live-API path above.
+parse_quarter_label <- function(x) {
+  q <- as.integer(sub("^Q(\\d).*", "\\1", x))
+  y <- as.integer(sub(".*\\s(\\d{4})$", "\\1", x))
+  as.Date(sprintf("%d-%02d-01", y, (q - 1L) * 3L + 1L))
+}
+
+# The live "current" snapshot (right now) can sit ahead of the last row of
+# /api/debt/historical (which only updates periodically). Fetch it and,
+# if it's genuinely newer, append it -- linearly interpolating any whole
+# calendar months in between so the line doesn't jump straight from the
+# last historical point to today's value.
+current_snapshot <- tryCatch({
+  resp_cur <- request(DEBT_API_CURRENT) %>%
+    req_user_agent("IEA-Kenya-QuarterlyReport/1.0 (+quarto render)") %>%
+    req_timeout(25) %>%
+    req_perform()
+  parsed_cur <- resp_body_json(resp_cur, simplifyVector = TRUE)
+  if (!isTRUE(parsed_cur$success) || is.null(parsed_cur$data)) {
+    stop("current endpoint returned no usable data")
+  }
+  d <- parsed_cur$data
+  list(
+    date     = as.Date(substr(d$timestamp, 1, 10)),
+    Total    = round(as.numeric(d$total)    / 1e9, 2),
+    Domestic = round(as.numeric(d$domestic) / 1e9, 2),
+    External = round(as.numeric(d$external) / 1e9, 2)
+  )
+}, error = function(e) {
+  message("Live 'current' debt snapshot unavailable (", conditionMessage(e), ") -- historical series left as-is.")
+  NULL
+})
+
+append_current_with_interpolation <- function(hist_df, current) {
+  if (is.null(current)) return(hist_df)
+  last_date <- max(hist_df$Quarter)
+  if (current$date <= last_date) return(hist_df)  # nothing newer to add
+
+  last_row <- hist_df[hist_df$Quarter == last_date, ][1, ]
+
+  # Whole-month points strictly between the last historical point and now.
+  gap_starts <- seq(last_date, current$date, by = "month")
+  gap_starts <- gap_starts[gap_starts > last_date & gap_starts < current$date]
+
+  all_pts    <- c(last_date, gap_starts, current$date)
+  total_span <- as.numeric(current$date - last_date)
+  frac       <- as.numeric(all_pts - last_date) / total_span
+
+  interp <- tibble(
+    Quarter  = all_pts,
+    Total    = last_row$Total    + frac * (current$Total    - last_row$Total),
+    Domestic = last_row$Domestic + frac * (current$Domestic - last_row$Domestic),
+    External = last_row$External + frac * (current$External - last_row$External)
+  )
+  n <- nrow(interp)
+  interp[1, c("Total", "Domestic", "External")] <- last_row[, c("Total", "Domestic", "External")]
+  interp[n, c("Total", "Domestic", "External")] <- current[c("Total", "Domestic", "External")]
+
+  new_rows <- interp[interp$Quarter > last_date, ]  # drop the duplicated last_date row
+  bind_rows(hist_df, new_rows) %>% arrange(Quarter)
+}
+
+if (!is.null(api_debt_hist)) {
+  key_metrics_trend_df <- append_current_with_interpolation(api_debt_hist, current_snapshot)
+  key_metrics_has_composition <- TRUE
+  key_metrics_source_note <- "Source: Kenya Debt Counter live API (api.kenyadebtcounter.or.ke)"
+} else {
+  key_metrics_trend_df <- tail_factor(df_all, max_n = nrow(df_all)) %>%  # full history, uncapped
+    mutate(Quarter = parse_quarter_label(as.character(Quarter)))
+  key_metrics_has_composition <- has_composition
+  key_metrics_source_note <- "Source: National Treasury / CBK via IEA Kenya (Google Sheet)"
+}
+
+series_colors <- c("Total" = iea_blue, "Domestic" = iea_green, "External" = iea_gold)
+
+# Shared two-tier x-axis: "Jun"/"Dec" month ticks (horizontal, plain) with a
+# bold year label centred underneath every second tick -- matches the
+# reference dashboard style. With 27 years of history this is a lot of
+# ticks (~54), so labels are kept small to stay legible.
+key_metrics_yr_range <- as.integer(format(range(key_metrics_trend_df$Quarter), "%Y"))
+
+key_metrics_month_breaks <- as.Date(unlist(lapply(
+  key_metrics_yr_range[1]:key_metrics_yr_range[2],
+  function(y) c(sprintf("%d-06-01", y), sprintf("%d-12-01", y))
+)), origin = "1970-01-01")
+key_metrics_month_breaks <- sort(key_metrics_month_breaks[
+  key_metrics_month_breaks >= min(key_metrics_trend_df$Quarter) &
+  key_metrics_month_breaks <= max(key_metrics_trend_df$Quarter)
+])
+
+# One bold year label per year, centred on 1 July (between that year's Jun
+# and Dec ticks) -- drawn just below the axis line via coord_cartesian(clip
+# = "off") in each chart below, since it sits outside the data panel.
+key_metrics_year_breaks <- as.Date(sprintf("%d-07-01", key_metrics_yr_range[1]:key_metrics_yr_range[2]))
+key_metrics_year_breaks <- key_metrics_year_breaks[
+  key_metrics_year_breaks >= min(key_metrics_trend_df$Quarter) &
+  key_metrics_year_breaks <= max(key_metrics_trend_df$Quarter)
+]
+# Label only every 2nd year to stop the year row from overlapping itself.
+key_metrics_year_breaks <- key_metrics_year_breaks[seq(1, length(key_metrics_year_breaks), by = 2)]
+
+key_metrics_year_layer <- geom_text(
+  data = data.frame(x = key_metrics_year_breaks, y = -Inf,
+                     lbl = format(key_metrics_year_breaks, "%Y")),
+  aes(x = x, y = y, label = lbl), inherit.aes = FALSE,
+  vjust = 4.2, size = 2.6, fontface = "bold", colour = "black"
+)
+
+# Source note, drawn as its own text layer positioned below the year row
+# (rather than ggplot's automatic caption, which was landing on top of the
+# year row instead of underneath it once the axis grew a second row).
+key_metrics_source_layer <- annotate(
+  "text", x = min(key_metrics_trend_df$Quarter), y = -Inf,
+  label = key_metrics_source_note, hjust = 0, vjust = 7.6,
+  size = 2.4, colour = "gray40"
+)
+
+key_metrics_x_scale <- function(right_expand = 0.015) {
+  scale_x_date(breaks = key_metrics_month_breaks,
+               labels = format(key_metrics_month_breaks, "%b"),
+               expand = expansion(mult = c(0.015, right_expand)))
+}
+# Month labels rotated 90 degrees (vertical) so they don't collide at ~54
+# ticks across the full history; the bold year row sits further below to
+# clear the now-taller vertical month labels, and the bottom margin is
+# widened further still to leave room for the source-note row below that.
+key_metrics_x_theme <- list(
+  coord_cartesian(clip = "off"),
+  theme(axis.text.x  = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 5),
+        plot.margin  = margin(t = 5.5, r = 8, b = 65, l = 5.5))
+)
+```
+
+### Figure 1. Trends in Kenya's Debt (Ksh Trillion)
+
+```{r key-metrics-total, fig.width=7, fig.height=4.3} 
+library(ggthemes)
+if (key_metrics_has_composition) {
+  key_metrics_fig1_long <- key_metrics_trend_df %>%
+    select(Quarter, Total, Domestic, External) %>%
+    pivot_longer(cols = c(Total, Domestic, External),
+                 names_to = "Series", values_to = "Debt") %>%
+    mutate(Series = factor(Series, levels = c("Total", "Domestic", "External")))
+} else {
+  key_metrics_fig1_long <- key_metrics_trend_df %>%
+    select(Quarter, Total) %>%
+    pivot_longer(cols = Total, names_to = "Series", values_to = "Debt")
+}
+
+key_metrics_fig1_endlabels <- key_metrics_fig1_long %>%
+  group_by(Series) %>%
+  filter(Quarter == max(Quarter)) %>%
+  ungroup() %>%
+  mutate(label = sprintf("KSh %05.2f T %s", Debt / 1000, Series))
+
+# Export the exact data behind this chart (key_metrics_fig1_long: Quarter x
+# Series x Debt, long format) to a small Excel file published alongside the
+# PDF via GitHub Pages (docs/), so the "Download Excel" link below the
+# chart always matches what's plotted -- regenerated fresh on every render.
+key_metrics_fig1_xlsx_name    <- "figure1_debt_trend_data.xlsx"
+key_metrics_fig1_download_url <- paste0(
+  "https://wnwamalwa.github.io/quarterly-macro-debt-report/",
+  key_metrics_fig1_xlsx_name
+)
+key_metrics_fig1_xlsx_ok <- tryCatch({
+  if (!requireNamespace("openxlsx", quietly = TRUE)) stop("openxlsx not installed")
+  if (!dir.exists("docs")) dir.create("docs")
+  fig1_wb <- openxlsx::createWorkbook()
+  openxlsx::addWorksheet(fig1_wb, "Figure 1 Data")
+  openxlsx::writeData(
+    fig1_wb, "Figure 1 Data",
+    key_metrics_fig1_long %>%
+      rename(Date = Quarter, `Debt (KSh Billion)` = Debt),
+    headerStyle = openxlsx::createStyle(textDecoration = "bold")
+  )
+  openxlsx::setColWidths(fig1_wb, "Figure 1 Data", cols = 1:3, widths = c(12, 12, 18))
+  openxlsx::saveWorkbook(fig1_wb, file.path("docs", key_metrics_fig1_xlsx_name), overwrite = TRUE)
+  TRUE
+}, error = function(e) {
+  message("Could not write Figure 1 Excel export (", conditionMessage(e), ") -- Download Excel link will be omitted from this render.")
+  FALSE
+})
+
+# Figure 1's own source note drops the raw API domain and is combined
+# with the real "Download Excel" hyperlink into one line printed below
+# the chart (see the key-metrics-total-download chunk below), since text
+# baked into the plot image itself can never be clickable.
+key_metrics_fig1_source_note <- sub(
+  "\\s*\\(api\\.kenyadebtcounter\\.or\\.ke\\)", "", key_metrics_source_note
+)
+# No longer drawn inside the plot -- it's combined with the "Download
+# Excel" link into one line printed below the chart instead (see the
+# key-metrics-total-download chunk), since text baked into the plot
+# image itself can never be clickable.
+
+# Dynamic "As at [date]" callout with a curved arrow pointing at the tip of
+# the Total line. The date comes straight from the Total series' own latest
+# data point (the same row used for its end-of-line value label above), so
+# it updates automatically on every render as new data arrives -- nothing
+# here is hardcoded.
+ordinal_suffix <- function(day) {
+  if (day %in% c(11, 12, 13)) return("th")
+  switch(as.character(day %% 10), "1" = "st", "2" = "nd", "3" = "rd", "th")
+}
+format_as_at_date <- function(d) {
+  day <- as.integer(format(d, "%d"))
+  sprintf("As at %d%s %s %s", day, ordinal_suffix(day), format(d, "%B"), format(d, "%Y"))
+}
+
+key_metrics_fig1_tip   <- key_metrics_fig1_endlabels %>% filter(Series == "Total")
+key_metrics_fig1_asat_label <- format_as_at_date(key_metrics_fig1_tip$Quarter)
+
+key_metrics_fig1_xspan <- as.numeric(max(key_metrics_fig1_long$Quarter) - min(key_metrics_fig1_long$Quarter))
+
+# Same "round up to the next KSh 2 Trillion" top break used by the y-axis
+# ticks below (the "KSh 14 T" gridline etc.) -- the callout curves down
+# from that gridline into the Total line's tip, so it always lines up with
+# whichever tick happens to be the topmost one for the current data.
+key_metrics_fig1_y_top_break <- ceiling(max(key_metrics_fig1_long$Debt) / 2000) * 2000
+
+key_metrics_fig1_asat_x <- key_metrics_fig1_tip$Quarter - key_metrics_fig1_xspan * 0.10
+# Sit below the top gridline (not on top of it) by a fifth of the tick
+# spacing, so the callout clears the "KSh 14 T" label/gridline itself
+# while still curving down from up near the top of the panel.
+key_metrics_fig1_asat_y <- key_metrics_fig1_y_top_break - 2000 * 0.20
+
+ggplot(key_metrics_fig1_long, aes(x = Quarter, y = Debt, colour = Series, group = Series)) +
+  geom_line(linewidth = 0.8) +
+  scale_colour_manual(values = series_colors) +
+  geom_text(data = key_metrics_fig1_endlabels,
+            aes(x = Quarter, y = Debt, label = label, colour = Series),
+            hjust = 0, nudge_x = 250, size = 2.3, fontface = "bold",
+            show.legend = FALSE) +
+  annotate("curve",
+           x = key_metrics_fig1_asat_x, y = key_metrics_fig1_asat_y,
+           xend = key_metrics_fig1_tip$Quarter, yend = key_metrics_fig1_tip$Debt,
+           curvature = -0.2, angle = 90,
+           arrow = arrow(length = unit(0.08, "inches"), type = "closed"),
+           linewidth = 0.4, colour = "gray30") +
+  annotate("text",
+           x = key_metrics_fig1_asat_x-4, y = key_metrics_fig1_asat_y,
+           label = key_metrics_fig1_asat_label,
+           hjust = 1, vjust = 0.5, size = 2.3, fontface = "italic",
+           colour = "gray30") +
+  key_metrics_x_scale() +
+  key_metrics_year_layer +
+  # Debt is stored in KSh Billions; y-axis ticks step every KSh 2 Trillion
+  # (i.e. every 2,000 in the underlying Billions units) and are labelled
+  # "KSh 00 T" .. "KSh 14 T" (etc.), matching the end-of-line "T" labels.
+  scale_y_continuous(
+    breaks = seq(0, key_metrics_fig1_y_top_break, by = 2000),
+    labels = function(x) sprintf("KSh %02d T", as.integer(round(x / 1000))),
+    expand = expansion(mult = c(0.02, 0.14))
+  ) +
+  labs(x = NULL, y = NULL, colour = NULL) +
+  theme_gdocs() +
+  key_metrics_x_theme +
+  # Restrict the panel itself (and therefore the gridlines and the x-axis
+  # line) to the real data range, instead of inflating the scale to make
+  # room for the end-of-line labels. clip = "off" still lets the labels
+  # draw past that boundary, into the widened right margin below -- so
+  # nothing (gridlines, axis line, or panel border) strays into label
+  # territory anymore.
+  coord_cartesian(
+    xlim = c(min(key_metrics_fig1_long$Quarter), max(key_metrics_fig1_long$Quarter)),
+    clip = "off"
+  ) +
+  theme(legend.position = "none",
+        plot.margin = margin(t = 16, r = 80, b = 65, l = 5.5),
+        axis.text.y = element_text(colour = "black",size = 8))
+```
+
+```{r key-metrics-total-download, results='asis'}
+# Combined "Source: ... (Download Excel)" line -- text baked into the
+# ggplot image above can never be clickable, so this is the one place the
+# source caption actually appears for Figure 1 now. The download link is
+# only added when the Excel export actually succeeded this render, so it
+# never points at a file that was not published; the source text alone
+# still always prints, so attribution is never lost.
+if (key_metrics_fig1_xlsx_ok) {
+  cat(sprintf(
+    "\n\\vspace{-1.6em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s (\\href{%s}{Download Excel})}\n\\end{flushleft}\n",
+    key_metrics_fig1_source_note, key_metrics_fig1_download_url
+  ))
+} else {
+  cat(sprintf(
+    "\n\\vspace{-1.6em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s}\n\\end{flushleft}\n",
+    key_metrics_fig1_source_note
+  ))
+}
+```
+
+```{r debt-snapshot-summary, results='asis'}
+# Summary paragraph + Domestic/External/Total composition table across
+# three points in time (prior quarter-end, reporting quarter-end, and the
+# live "as at" snapshot) -- all computed from the same merged trend data
+# that feeds Figure 1 (key_metrics_trend_df) and the report's own
+# reporting_period, nothing here is hardcoded. Plain markdown + kable()
+# (not raw LaTeX) so Pandoc/kableExtra handle all the escaping themselves.
+debt_summary_ok <- tryCatch({
+
+last_day_of_month <- function(year, month) {
+  first_next <- if (month == 12) as.Date(sprintf("%d-01-01", year + 1)) else as.Date(sprintf("%d-%02d-01", year, month + 1))
+  first_next - 1
+}
+
+closest_on_or_before <- function(df, target_date) {
+  cand <- df[df$Quarter <= target_date, ]
+  if (nrow(cand) == 0) cand <- df
+  cand[which.max(cand$Quarter), ]
+}
+
+q_labels_all     <- c("Q1", "Q2", "Q3", "Q4")
+q_end_months_all <- c(3L, 6L, 9L, 12L)
+
+fmt_trillion <- function(x) sprintf("%.2f", x / 1000)
+fmt_pct_str  <- function(x) paste0(sprintf("%.0f", x), "%")
+fmt_short_date <- function(d) {
+  day <- as.integer(format(d, "%d"))
+  sprintf("%d%s %s %d", day, ordinal_suffix(day), format(d, "%b"), as.integer(format(d, "%Y")))
+}
+
+# --- "As at" (live) snapshot: same latest point as Figure 1's arrow ------
+asat_row         <- key_metrics_trend_df[which.max(key_metrics_trend_df$Quarter), ]
+asat_date_label  <- format_as_at_date(asat_row$Quarter)
+asat_short_label <- fmt_short_date(asat_row$Quarter)
+
+ten_years_ago_date <- tryCatch(
+  as.Date(paste0(as.integer(format(asat_row$Quarter, "%Y")) - 10, format(asat_row$Quarter, "-%m-%d"))),
+  error = function(e) asat_row$Quarter - 3652
+)
+row_10y       <- closest_on_or_before(key_metrics_trend_df, ten_years_ago_date)
+ratio_10y_str <- sprintf("%.1f", asat_row$Total / row_10y$Total)
+
+asat_domestic_str <- fmt_pct_str(asat_row$Domestic / asat_row$Total * 100)
+asat_external_str <- fmt_pct_str(asat_row$External / asat_row$Total * 100)
+
+# --- Daily accumulation rate: the slope of the most recent segment of the
+# merged trend -- i.e. exactly the rate the live "current" point was
+# interpolated at, so it reflects the latest known pace of accumulation. -
+trend_sorted       <- key_metrics_trend_df[order(key_metrics_trend_df$Quarter), ]
+prev_row_for_rate  <- trend_sorted[nrow(trend_sorted) - 1, ]
+day_span           <- as.numeric(asat_row$Quarter - prev_row_for_rate$Quarter)
+daily_rate_str <- if (is.finite(day_span) && day_span > 0) {
+  sprintf("%.2f", (asat_row$Total - prev_row_for_rate$Total) / day_span)
+} else {
+  "n/a"
+}
+
+# --- Close-of-quarter points: reporting_period (title page's quarter) vs.
+# the quarter immediately before it. --------------------------------------
+q_num       <- match(reporting_period$quarter, q_labels_all)
+q_end_month <- q_end_months_all[q_num]
+q_end_date  <- last_day_of_month(reporting_period$year, q_end_month)
+q_end_row   <- value_at_date(key_metrics_trend_df, q_end_date, c("Total", "Domestic", "External"))
+
+prev_q_num <- q_num - 1L
+prev_year  <- reporting_period$year
+if (prev_q_num == 0L) { prev_q_num <- 4L; prev_year <- reporting_period$year - 1L }
+prev_q_end_month <- q_end_months_all[prev_q_num]
+prev_q_end_date  <- last_day_of_month(prev_year, prev_q_end_month)
+prev_q_end_row   <- value_at_date(key_metrics_trend_df, prev_q_end_date, c("Total", "Domestic", "External"))
+
+q_domestic_str      <- fmt_pct_str(q_end_row$Domestic / q_end_row$Total * 100)
+q_external_str      <- fmt_pct_str(q_end_row$External / q_end_row$Total * 100)
+prev_q_domestic_str <- fmt_pct_str(prev_q_end_row$Domestic / prev_q_end_row$Total * 100)
+prev_q_external_str <- fmt_pct_str(prev_q_end_row$External / prev_q_end_row$Total * 100)
+
+col1_label <- sprintf("%s %s %d", q_labels_all[prev_q_num], month.abb[prev_q_end_month], prev_year)
+col2_label <- sprintf("%s %s %d", reporting_period$quarter, month.abb[q_end_month], reporting_period$year)
+col3_label <- asat_short_label
+
+cat(sprintf(
+  "**%s**, the public debt is estimated at Total debt: **KSh %s trillion**, and is **%s times** what it was a decade ago without correcting for inflation. Approximately **KSh %s billion** of new debt stock is added daily. The share composition of debt has evolved as follows:\n",
+  asat_date_label, fmt_trillion(asat_row$Total), ratio_10y_str, daily_rate_str
+))
+
+debt_summary_table <- data.frame(Metric = c("Domestic", "External", "Total"),
+                                  check.names = FALSE, stringsAsFactors = FALSE)
+debt_summary_table[[col1_label]] <- c(prev_q_domestic_str, prev_q_external_str,
+                                       sprintf("KSh %s T (100%%)", fmt_trillion(prev_q_end_row$Total)))
+debt_summary_table[[col2_label]] <- c(q_domestic_str, q_external_str,
+                                       sprintf("KSh %s T (100%%)", fmt_trillion(q_end_row$Total)))
+debt_summary_table[[col3_label]] <- c(asat_domestic_str, asat_external_str,
+                                       sprintf("KSh %s T (100%%)", fmt_trillion(asat_row$Total)))
+
+TRUE
+}, error = function(e) {
+  message("Could not build the debt snapshot summary (", conditionMessage(e), ") -- section omitted from this render.")
+  FALSE
+})
+```
+
+```{r debt-snapshot-table, results='asis', eval=debt_summary_ok}
+# Rendered with the hand-built tabularx renderer (see iea_fullwidth_table
+# near the top of this file) rather than kable_styling(full_width = TRUE),
+# which emits a `tabu` environment that is broken under modern TeX
+# Live/LuaHBTeX. This spans the full text block, margin to margin.
+cat(iea_fullwidth_table(debt_summary_table, bold_rows = 3,
+      caption = "Composition of the public debt stock"))
+```
+
+\newpage
+
+### Figure 2. Trends in Debt per Capita (KSh)
+
+```{r debt-per-capita-data}
+# Debt per capita = the same combined Total/Domestic/External debt series
+# behind Figure 1 (key_metrics_trend_df) divided by population, pulled live
+# from the Kenya Debt Counter population endpoints and joined by calendar
+# month (both series are independently interpolated to "today", so an
+# exact-date join would miss points -- joining on year-month lines them up
+# reliably). Falls back to the existing Population sheet (df_debt_pc /
+# df_all, computed near the top of this file) if the live population API
+# is unavailable, same defensive pattern as the debt data itself.
+POP_API_HISTORICAL <- "https://api.kenyadebtcounter.or.ke/api/indicators/population/historical"
+POP_API_CURRENT    <- "https://api.kenyadebtcounter.or.ke/api/population/current"
+
+api_pop_hist <- tryCatch({
+  resp <- request(POP_API_HISTORICAL) %>%
+    req_user_agent("IEA-Kenya-QuarterlyReport/1.0 (+quarto render)") %>%
+    req_timeout(25) %>%
+    req_perform()
+  parsed <- resp_body_json(resp, simplifyVector = TRUE)
+  if (!isTRUE(parsed$success) || is.null(parsed$data) || nrow(parsed$data) == 0) {
+    stop("API responded but returned no usable data (success=", parsed$success, ")")
+  }
+  parsed$data %>%
+    as_tibble() %>%
+    mutate(date = as.Date(date)) %>%
+    arrange(date) %>%
+    mutate(month_label = format(date, "%Y-%m")) %>%
+    group_by(month_label) %>%
+    slice_tail(n = 1) %>%
+    ungroup() %>%
+    arrange(date) %>%
+    transmute(month_label, Population = as.numeric(value))
+}, error = function(e) {
+  message("Live population API unavailable (", conditionMessage(e), ") -- falling back to Population sheet.")
+  NULL
+})
+
+pop_current_snapshot <- tryCatch({
+  resp_cur <- request(POP_API_CURRENT) %>%
+    req_user_agent("IEA-Kenya-QuarterlyReport/1.0 (+quarto render)") %>%
+    req_timeout(25) %>%
+    req_perform()
+  parsed_cur <- resp_body_json(resp_cur, simplifyVector = TRUE)
+  if (!isTRUE(parsed_cur$success) || is.null(parsed_cur$data)) stop("current endpoint returned no usable data")
+  list(
+    date       = as.Date(substr(parsed_cur$data$timestamp, 1, 10)),
+    Population = as.numeric(parsed_cur$data$population)
+  )
+}, error = function(e) {
+  message("Live population 'current' snapshot unavailable (", conditionMessage(e), ").")
+  NULL
+})
+
+has_debt_pc_live   <- FALSE
+debt_pc_source_note <- NULL
+
+if (!is.null(api_pop_hist)) {
+  pop_by_month <- api_pop_hist
+  latest_hist_month <- max(as.Date(paste0(pop_by_month$month_label, "-01")))
+  if (!is.null(pop_current_snapshot) && pop_current_snapshot$date > latest_hist_month) {
+    pop_by_month <- bind_rows(
+      pop_by_month,
+      tibble(month_label = format(pop_current_snapshot$date, "%Y-%m"),
+             Population  = pop_current_snapshot$Population)
+    )
+  }
+
+  # Population is a slow, smooth series and its monthly grid does not
+  # necessarily cover every month the debt series carries. An inner join on
+  # year-month therefore dropped whole stretches of the debt series, which
+  # is what made two different quarter-end columns in the table below
+  # resolve to the same underlying row. Interpolate population linearly
+  # onto the debt series' OWN dates instead, so every debt point gets a
+  # per-capita value on exactly the same date grid Figure 1 uses. rule = 2
+  # holds the first/last known population flat beyond the series' ends.
+  debt_pc_df <- tryCatch({
+    pop_dates <- as.Date(paste0(pop_by_month$month_label, "-01"))
+    pop_ord   <- order(pop_dates)
+    if (length(pop_dates) < 2) stop("need at least two population points to interpolate")
+
+    pop_on_debt_dates <- approx(
+      x    = as.numeric(pop_dates[pop_ord]),
+      y    = pop_by_month$Population[pop_ord],
+      xout = as.numeric(key_metrics_trend_df$Quarter),
+      rule = 2
+    )$y
+
+    # Domestic and External per-capita trends, divided by the same population
+    # series as Total -- mirrors Figure 1's Total/Domestic/External composition.
+    key_metrics_trend_df %>%
+      mutate(Population = pop_on_debt_dates) %>%
+      filter(is.finite(Population), Population > 0) %>%
+      transmute(Quarter,
+                Total    = (Total    * 1e9) / Population,
+                Domestic = (Domestic * 1e9) / Population,
+                External = (External * 1e9) / Population)
+  }, error = function(e) {
+    message("Could not align population to the debt series (", conditionMessage(e), ") -- falling back to sheet data.")
+    NULL
+  })
+  if (is.null(debt_pc_df)) debt_pc_df <- key_metrics_trend_df[0, ][, "Quarter", drop = FALSE]
+
+  if (nrow(debt_pc_df) > 0) {
+    has_debt_pc_live    <- TRUE
+    debt_pc_source_note <- "Source: Kenya Debt Counter live API"
+  }
+}
+
+if (!has_debt_pc_live && has_debt_pc) {
+  if (key_metrics_has_composition) {
+    # Sheet fallback with a Domestic/External breakdown, computed the same
+    # way as the live path: each series divided by the same population.
+    debt_pc_df <- df_all %>%
+      select(Quarter, Total, Domestic, External) %>%
+      inner_join(df_pop %>% rename(Pop = Value), by = "Quarter") %>%
+      transmute(Quarter = parse_quarter_label(as.character(Quarter)),
+                Total    = (Total    * 1e9) / (Pop * 1e6),
+                Domestic = (Domestic * 1e9) / (Pop * 1e6),
+                External = (External * 1e9) / (Pop * 1e6))
+  } else {
+    # No Domestic/External split available in the fallback data -- Total
+    # per capita only, Domestic/External left NA (dropped before plotting).
+    debt_pc_df <- df_debt_pc %>%
+      transmute(Quarter = parse_quarter_label(as.character(Quarter)),
+                Total = Debt_per_Capita_KSh,
+                Domestic = NA_real_,
+                External = NA_real_)
+  }
+  has_debt_pc_live    <- TRUE
+  debt_pc_source_note <- "Source: National Treasury / CBK / KNBS via IEA Kenya (Google Sheet)"
+}
+
+# ── Reconcile the split to the published Total ──────────────────────────────
+# In the source data the published Total and the Domestic/External split do
+# not always close exactly (a fraction of a percent -- the kind of gap an
+# FX-valuation timing difference on external debt produces). Everything else
+# in this report leads with the published Total, so that figure is kept
+# exactly as published and the two components are scaled onto it:
+#
+#   Domestic' = Domestic x Total / (Domestic + External)
+#   External' = Total - Domestic'
+#
+# This preserves the source's own domestic:external ratio to the last
+# decimal while guaranteeing the components sum to the Total exactly, in the
+# chart's end labels and in the summary table alike. The size of the gap
+# being closed is kept in debt_pc_gap_pct_max and disclosed under the table.
+debt_pc_gap_pct_max <- NA_real_
+
+if (exists("debt_pc_df") && !is.null(debt_pc_df) && nrow(debt_pc_df) > 0 &&
+    all(c("Total", "Domestic", "External") %in% names(debt_pc_df))) {
+  debt_pc_parts <- debt_pc_df$Domestic + debt_pc_df$External
+  debt_pc_gaps  <- ifelse(
+    is.finite(debt_pc_parts) & is.finite(debt_pc_df$Total) & debt_pc_df$Total > 0,
+    (debt_pc_parts - debt_pc_df$Total) / debt_pc_df$Total * 100,
+    NA_real_
+  )
+  if (any(is.finite(debt_pc_gaps))) {
+    debt_pc_gap_pct_max <- debt_pc_gaps[which.max(abs(ifelse(is.finite(debt_pc_gaps), debt_pc_gaps, 0)))]
+  }
+
+  debt_pc_k <- ifelse(
+    is.finite(debt_pc_parts) & debt_pc_parts > 0 & is.finite(debt_pc_df$Total),
+    debt_pc_df$Total / debt_pc_parts,
+    NA_real_
+  )
+  debt_pc_df$Domestic <- debt_pc_df$Domestic * debt_pc_k
+  debt_pc_df$External <- debt_pc_df$Total - debt_pc_df$Domestic
+}
+```
+
+```{r debt-per-capita-chart, fig.width=7, fig.height=4.3, eval=has_debt_pc_live}
+# Same Total/Domestic/External composition treatment as Figure 1 --
+# pivot to long format, one coloured line per series, sharing the same
+# series_colors used there so the two charts read consistently.
+debt_pc_long <- debt_pc_df %>%
+  pivot_longer(cols = c(Total, Domestic, External), names_to = "Series", values_to = "Per_Capita") %>%
+  filter(!is.na(Per_Capita)) %>%
+  mutate(Series = factor(Series, levels = c("Total", "Domestic", "External")))
+
+debt_pc_endlabels <- debt_pc_long %>%
+  group_by(Series) %>%
+  filter(Quarter == max(Quarter)) %>%
+  ungroup() %>%
+  mutate(label = sprintf("KSh %s %s", format(round(Per_Capita), big.mark = ","), Series))
+
+# Export the exact data behind this chart (long format: Quarter x Series x
+# Per_Capita) to a small Excel file published alongside the PDF via GitHub
+# Pages (docs/), mirroring Figure 1's own "Download Excel" link --
+# regenerated fresh on every render.
+debt_pc_xlsx_name    <- "figure2_debt_per_capita_data.xlsx"
+debt_pc_download_url <- paste0(
+  "https://wnwamalwa.github.io/quarterly-macro-debt-report/",
+  debt_pc_xlsx_name
+)
+debt_pc_xlsx_ok <- tryCatch({
+  if (!requireNamespace("openxlsx", quietly = TRUE)) stop("openxlsx not installed")
+  if (!dir.exists("docs")) dir.create("docs")
+  pc_wb <- openxlsx::createWorkbook()
+  openxlsx::addWorksheet(pc_wb, "Figure 2 Data")
+  openxlsx::writeData(
+    pc_wb, "Figure 2 Data",
+    debt_pc_long %>% rename(Date = Quarter, `Debt per Capita (KSh)` = Per_Capita),
+    headerStyle = openxlsx::createStyle(textDecoration = "bold")
+  )
+  openxlsx::setColWidths(pc_wb, "Figure 2 Data", cols = 1:3, widths = c(12, 12, 20))
+  openxlsx::saveWorkbook(pc_wb, file.path("docs", debt_pc_xlsx_name), overwrite = TRUE)
+  TRUE
+}, error = function(e) {
+  message("Could not write Figure 2 Excel export (", conditionMessage(e), ") -- Download Excel link will be omitted from this render.")
+  FALSE
+})
+
+# Same dynamic "As at [date]" curved-arrow callout as Figure 1, pointing at
+# the tip of the Total line -- ordinal_suffix()/format_as_at_date() are
+# already defined in the key-metrics-total chunk above and persist in the
+# shared knitr environment, so they're reused here rather than redefined.
+debt_pc_tip        <- debt_pc_endlabels %>% filter(Series == "Total")
+debt_pc_asat_label <- format_as_at_date(debt_pc_tip$Quarter)
+
+debt_pc_xspan <- as.numeric(max(debt_pc_long$Quarter) - min(debt_pc_long$Quarter))
+
+# Y-axis ticks step every KSh 50,000 per capita, labelled "KSh 0K" ..
+# "KSh 250K" (etc.) -- same "round up to the next break" logic as Figure
+# 1's KSh-2-Trillion ticks, just rescaled for per-capita magnitude. Driven
+# off the Total series, which is always the largest of the three.
+debt_pc_y_top_break <- ceiling(max(debt_pc_long$Per_Capita) / 50000) * 50000
+
+debt_pc_asat_x <- debt_pc_tip$Quarter - debt_pc_xspan * 0.10
+debt_pc_asat_y <- debt_pc_y_top_break - 50000 * 0.20
+
+ggplot(debt_pc_long, aes(x = Quarter, y = Per_Capita, colour = Series, group = Series)) +
+  geom_line(linewidth = 0.8) +
+  scale_colour_manual(values = series_colors) +
+  geom_text(data = debt_pc_endlabels,
+            aes(x = Quarter, y = Per_Capita, label = label, colour = Series),
+            hjust = 0, nudge_x = 250, size = 2.3, fontface = "bold",
+            show.legend = FALSE) +
+  annotate("curve",
+           x = debt_pc_asat_x, y = debt_pc_asat_y,
+           xend = debt_pc_tip$Quarter, yend = debt_pc_tip$Per_Capita,
+           curvature = -0.2, angle = 90,
+           arrow = arrow(length = unit(0.08, "inches"), type = "closed"),
+           linewidth = 0.4, colour = "gray30") +
+  annotate("text",
+           x = debt_pc_asat_x - 4, y = debt_pc_asat_y,
+           label = debt_pc_asat_label,
+           hjust = 1, vjust = 0.5, size = 2.3, fontface = "italic",
+           colour = "gray30") +
+  key_metrics_x_scale() +
+  key_metrics_year_layer +
+  scale_y_continuous(
+    breaks = seq(0, debt_pc_y_top_break, by = 50000),
+    labels = function(x) sprintf("KSh %dK", as.integer(round(x / 1000))),
+    expand = expansion(mult = c(0.02, 0.14))
+  ) +
+  labs(x = NULL, y = NULL, colour = NULL) +
+  theme_gdocs() +
+  key_metrics_x_theme +
+  coord_cartesian(
+    xlim = c(min(debt_pc_long$Quarter), max(debt_pc_long$Quarter)),
+    clip = "off"
+  ) +
+  theme(legend.position = "none",
+        plot.margin = margin(t = 16, r = 80, b = 65, l = 5.5),
+        axis.text.y = element_text(colour = "black", size = 8))
+```
+
+```{r debt-per-capita-download, results='asis', eval=has_debt_pc_live}
+# Combined "Source: ... (Download Excel)" line, matching Figure 1's exact
+# same pattern -- the source text always prints, the download link only
+# when the Excel export actually succeeded this render.
+if (debt_pc_xlsx_ok) {
+  cat(sprintf(
+    "\n\\vspace{-1.6em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s (\\href{%s}{Download Excel})}\n\\end{flushleft}\n",
+    debt_pc_source_note, debt_pc_download_url
+  ))
+} else {
+  cat(sprintf(
+    "\n\\vspace{-1.6em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s}\n\\end{flushleft}\n",
+    debt_pc_source_note
+  ))
+}
+```
+
+```{r debt-per-capita-summary, results='asis'}
+# Same Domestic/External/Total composition table as the Figure 1 summary
+# (debt-snapshot-summary/debt-snapshot-table above), reusing its already-
+# computed time points (prev_q_end_date, q_end_date, asat_row$Quarter) and
+# column labels (col1_label/col2_label/col3_label) for consistency -- but
+# showing KSh-per-capita figures in each cell instead of percentages.
+debt_pc_summary_ok <- tryCatch({
+  if (!debt_summary_ok) stop("Figure 1 summary table unavailable -- its date points/labels are reused here.")
+
+  fmt_pc <- function(x) {
+    if (is.na(x)) return("n/a")
+    paste0("KSh ", format(round(x), big.mark = ","))
+  }
+
+  # Interpolated to the exact quarter-end date rather than snapped back to
+  # the closest earlier monthly point -- see value_at_date(). "Q1 Mar 2026"
+  # is the stock as at 31 March 2026, not as at 1 March.
+  debt_pc_cols       <- c("Total", "Domestic", "External")
+  debt_pc_prev_q_row <- value_at_date(debt_pc_df, prev_q_end_date, debt_pc_cols)
+  debt_pc_q_row      <- value_at_date(debt_pc_df, q_end_date,      debt_pc_cols)
+  debt_pc_asat_row   <- debt_pc_df[which.max(debt_pc_df$Quarter), ]
+
+  # Round for display in a way that cannot break the addition: Total and
+  # Domestic are rounded to whole shillings, and External is taken as the
+  # difference between them. (debt_pc_df is already reconciled at full
+  # precision above, so this only absorbs the sub-shilling rounding.)
+  pc_column_cells <- function(row) {
+    tot <- round(row$Total)
+    dom <- round(row$Domestic)
+    ext <- if (is.finite(tot) && is.finite(dom)) tot - dom else NA_real_
+    c(fmt_pc(dom), fmt_pc(ext), fmt_pc(tot))
+  }
+
+  debt_pc_summary_table <- data.frame(Metric = c("Domestic", "External", "Total"),
+                                       check.names = FALSE, stringsAsFactors = FALSE)
+  debt_pc_summary_table[[col1_label]] <- pc_column_cells(debt_pc_prev_q_row)
+  debt_pc_summary_table[[col2_label]] <- pc_column_cells(debt_pc_q_row)
+  debt_pc_summary_table[[col3_label]] <- pc_column_cells(debt_pc_asat_row)
+
+  # --- Narrative paragraph printed above the table -------------------------
+  # Mirrors the Figure 1 snapshot paragraph, but on a per-person basis: the
+  # latest per-capita point (the same tip Figure 2's "As at" arrow marks),
+  # its multiple of the per-person figure a decade earlier, and how much new
+  # debt per person has been added over the most recent twelve months.
+  debt_pc_latest <- debt_pc_df[which.max(debt_pc_df$Quarter), ]
+
+  debt_pc_10y_row <- closest_on_or_before(debt_pc_df, years_back_date(debt_pc_latest$Quarter, 10))
+  debt_pc_1y_row  <- closest_on_or_before(debt_pc_df, years_back_date(debt_pc_latest$Quarter, 1))
+
+  debt_pc_10y_mult <- sprintf("%.1f", debt_pc_latest$Total / debt_pc_10y_row$Total)
+
+  # Annual pace of accumulation = the actual change in per-person debt over
+  # the last twelve months of the series, divided by the exact length of
+  # that window in years (so a slightly short/long window still annualises).
+  debt_pc_yr_span <- as.numeric(debt_pc_latest$Quarter - debt_pc_1y_row$Quarter) / 365.25
+  debt_pc_annual_add <- if (is.finite(debt_pc_yr_span) && debt_pc_yr_span > 0) {
+    (debt_pc_latest$Total - debt_pc_1y_row$Total) / debt_pc_yr_span
+  } else {
+    NA_real_
+  }
+
+  debt_pc_narrative <- sprintf(
+    "\n**%s**, the public debt is estimated at **%s per person**, and is **%s times** what it was a decade ago without correcting for inflation. As per the trend, approximately **%s** of new debt is added per person annually. The composition of debt per person has evolved as follows:\n\n",
+    format_as_at_date(debt_pc_latest$Quarter),
+    fmt_pc(debt_pc_latest$Total),
+    debt_pc_10y_mult,
+    fmt_pc(debt_pc_annual_add)
+  )
+
+  TRUE
+}, error = function(e) {
+  message("Could not build the debt-per-capita summary table (", conditionMessage(e), ") -- section omitted from this render.")
+  FALSE
+})
+
+if (debt_pc_summary_ok) {
+  cat(debt_pc_narrative)
+}
+```
+
+```{r debt-per-capita-table, results='asis', eval=debt_pc_summary_ok}
+# Same full-width tabularx renderer as the Figure 1 summary table above.
+cat(iea_fullwidth_table(debt_pc_summary_table, bold_rows = 3,
+      caption = "Public debt per capita, by composition"))
+```
+
+```{r debt-pc-bullets, results='asis', eval=debt_pc_summary_ok}
+# Three concrete readings of the per-person figure in Table 2. Everything
+# here is computed from data already in hand at this point in the document
+# (Figures 1 and 2) -- knitr chunks run in order, so the sustainability
+# inputs further down do not exist yet and cannot be quoted numerically.
+# The forward reference to that section is therefore textual only.
+illustrative_household <- 4   # KNBS puts the average household near four
+
+pc_household <- debt_pc_latest$Total * illustrative_household
+pc_daily     <- debt_pc_annual_add / 365.25
+pc_daily_hh  <- pc_daily * illustrative_household
+
+pc_1y_row <- value_at_date(debt_pc_df, years_back_date(debt_pc_latest$Quarter, 1),
+                           c("Total", "Domestic", "External"))
+pc_dom_1y <- debt_pc_latest$Domestic - pc_1y_row$Domestic
+pc_ext_1y <- debt_pc_latest$External - pc_1y_row$External
+
+cat("\\begin{itemize}[itemsep=5pt, parsep=0pt, topsep=2pt, leftmargin=1.4em]\n")
+
+cat(sprintf(
+  "\\item \\textbf{What it means in cash terms.} Clearing the debt stock today would require \\textbf{%s} from every man, woman and child in Kenya -- roughly \\textbf{%s} for a household of four. A decade ago the same claim stood at %s a person.\n",
+  fmt_pc(debt_pc_latest$Total), fmt_pc(pc_household), fmt_pc(debt_pc_10y_row$Total)
+))
+
+cat(sprintf(
+  "\\item \\textbf{The burden is compounding, not static.} Each person's share grows by about \\textbf{%s a year} -- close to \\textbf{%s every day}, or \\textbf{%s a day for a household of four} -- before a single shilling of it is repaid.\n",
+  fmt_pc(debt_pc_annual_add), fmt_pc(pc_daily), fmt_pc(pc_daily_hh)
+))
+
+cat(sprintf(
+  "\\item \\textbf{Policy implication -- the mix, not just the total.} Domestic borrowing accounts for \\textbf{%s} of each person's share against \\textbf{%s} external, and added \\textbf{%s} a person over the past year against \\textbf{%s} externally. Domestic debt is the more expensive of the two (see the Debt Sustainability Analysis), so the servicing cost carried by each Kenyan is rising faster than the burden itself -- stabilising it depends on the borrowing mix and the primary balance, not on the headline total alone.\n",
+  fmt_pc(debt_pc_latest$Domestic), fmt_pc(debt_pc_latest$External),
+  fmt_pc(pc_dom_1y), fmt_pc(pc_ext_1y)
+))
+
+cat("\\end{itemize}\n\n")
+```
+
+\newpage
+
+### Figure 3. Trends in the Public Debt (% of GDP)
+
+```{r fig3-gdp-data}
+# Debt as a share of GDP, built from exactly the same combined
+# Total/Domestic/External debt series behind Figures 1 and 2
+# (key_metrics_trend_df), divided by nominal GDP pulled live from the Kenya
+# Debt Counter GDP endpoint -- the sibling of the population endpoint used
+# by Figure 2, and read the same way. Falls back to the Google Sheet's GDP
+# indicator if the live endpoint is unavailable.
+GDP_API_HISTORICAL <- "https://api.kenyadebtcounter.or.ke/api/indicators/gdp/historical"
+
+api_gdp_hist <- tryCatch({
+  resp <- request(GDP_API_HISTORICAL) %>%
+    req_user_agent("IEA-Kenya-QuarterlyReport/1.0 (+quarto render)") %>%
+    req_timeout(25) %>%
+    req_perform()
+  parsed <- resp_body_json(resp, simplifyVector = TRUE)
+  if (!isTRUE(parsed$success) || is.null(parsed$data) || nrow(parsed$data) == 0) {
+    stop("API responded but returned no usable data (success=", parsed$success, ")")
+  }
+  parsed$data %>%
+    as_tibble() %>%
+    mutate(date = as.Date(date)) %>%
+    arrange(date) %>%
+    mutate(month_label = format(date, "%Y-%m")) %>%
+    group_by(month_label) %>%
+    slice_tail(n = 1) %>%
+    ungroup() %>%
+    arrange(date) %>%
+    transmute(date, GDP = as.numeric(value))
+}, error = function(e) {
+  message("Live GDP API unavailable (", conditionMessage(e), ") -- falling back to the GDP sheet.")
+  NULL
+})
+
+has_debt_gdp_live       <- FALSE
+debt_gdp_source_note    <- NULL
+debt_gdp_projected_from <- NA
+
+if (!is.null(api_gdp_hist) && nrow(api_gdp_hist) >= 2) {
+  debt_gdp_df <- tryCatch({
+    g <- api_gdp_hist[order(api_gdp_hist$date), ]
+
+    # The GDP series typically ends months behind the debt series, which runs
+    # right up to today. Left as-is that strands Figure 3 (and every column of
+    # its table) back at the last GDP point. So GDP is carried forward to the
+    # debt series' own last date along the slope of its most recent twelve
+    # months: nominal GDP moves smoothly, and the debt series it is divided by
+    # is itself already carried forward to today in the same way.
+    debt_last_date         <- max(key_metrics_trend_df$Quarter)
+    if (nrow(g) >= 2 && debt_last_date > max(g$date)) {
+      g_last_date <- max(g$date)
+      g_recent    <- g[g$date >= (g_last_date - 400), ]
+      if (nrow(g_recent) < 2) g_recent <- g[(nrow(g) - 1):nrow(g), ]
+      slope_per_day <- (g_recent$GDP[nrow(g_recent)] - g_recent$GDP[1]) /
+                        as.numeric(g_recent$date[nrow(g_recent)] - g_recent$date[1])
+      if (is.finite(slope_per_day)) {
+        g <- bind_rows(g, tibble(
+          date = debt_last_date,
+          GDP  = g$GDP[nrow(g)] + slope_per_day * as.numeric(debt_last_date - g_last_date)
+        ))
+        debt_gdp_projected_from <- g_last_date
+      }
+    }
+
+    # rule = 1 (not 2): before the GDP series starts the result is NA and
+    # those debt months are dropped, rather than dividing 1999 debt by a
+    # flat-held modern GDP figure. The forward end is covered by the
+    # projection above rather than by flat extension.
+    gdp_on_debt <- approx(x = as.numeric(g$date), y = g$GDP,
+                          xout = as.numeric(key_metrics_trend_df$Quarter),
+                          rule = 1)$y
+
+    # The debt series is in KSh billions and this assumes the GDP endpoint
+    # publishes raw KSh (as the population endpoint publishes raw persons).
+    # If the ratios that produces are implausible as percentages, the
+    # endpoint is publishing billions instead -- rescale rather than emit a
+    # chart that is wrong by nine orders of magnitude.
+    gdp_probe <- median((key_metrics_trend_df$Total * 1e9) / gdp_on_debt * 100, na.rm = TRUE)
+    if (is.finite(gdp_probe) && gdp_probe > 1000) gdp_on_debt <- gdp_on_debt * 1e9
+
+    key_metrics_trend_df %>%
+      mutate(GDP = gdp_on_debt) %>%
+      filter(is.finite(GDP), GDP > 0) %>%
+      transmute(Quarter,
+                Total    = (Total    * 1e9) / GDP * 100,
+                Domestic = (Domestic * 1e9) / GDP * 100,
+                External = (External * 1e9) / GDP * 100)
+  }, error = function(e) {
+    message("Could not align GDP to the debt series (", conditionMessage(e), ") -- falling back to the GDP sheet.")
+    NULL
+  })
+
+  if (!is.null(debt_gdp_df) && nrow(debt_gdp_df) > 0) {
+    has_debt_gdp_live    <- TRUE
+    debt_gdp_source_note <- "Source: Kenya Debt Counter live API"
+  }
+}
+
+if (!has_debt_gdp_live && has_gdp) {
+  # Sheet fallback -- df_all and df_gdp are both already in KSh billions,
+  # so the ratio is direct with no unit conversion.
+  debt_gdp_df <- tryCatch({
+    df_all %>%
+      select(Quarter, Total, Domestic, External) %>%
+      inner_join(df_gdp %>% rename(GDP = Value), by = "Quarter") %>%
+      filter(is.finite(GDP), GDP > 0) %>%
+      transmute(Quarter   = parse_quarter_label(as.character(Quarter)),
+                Total     = Total    / GDP * 100,
+                Domestic  = Domestic / GDP * 100,
+                External  = External / GDP * 100)
+  }, error = function(e) {
+    message("Sheet GDP fallback unavailable (", conditionMessage(e), ").")
+    NULL
+  })
+  if (!is.null(debt_gdp_df) && nrow(debt_gdp_df) > 0) {
+    has_debt_gdp_live    <- TRUE
+    debt_gdp_source_note <- "Source: KNBS / National Treasury via IEA Kenya (Google Sheet)"
+  }
+}
+
+# Same reconciliation as Figure 2: the published Total is kept exactly and
+# the two components are scaled onto it, so every column of the table below
+# sums to its Total while preserving the source's own domestic:external
+# ratio. The gap being closed is disclosed underneath the table.
+debt_gdp_gap_pct_max <- NA_real_
+
+if (has_debt_gdp_live && all(c("Total", "Domestic", "External") %in% names(debt_gdp_df))) {
+  debt_gdp_parts <- debt_gdp_df$Domestic + debt_gdp_df$External
+  debt_gdp_gaps  <- ifelse(
+    is.finite(debt_gdp_parts) & is.finite(debt_gdp_df$Total) & debt_gdp_df$Total > 0,
+    (debt_gdp_parts - debt_gdp_df$Total) / debt_gdp_df$Total * 100,
+    NA_real_
+  )
+  if (any(is.finite(debt_gdp_gaps))) {
+    debt_gdp_gap_pct_max <- debt_gdp_gaps[which.max(abs(ifelse(is.finite(debt_gdp_gaps), debt_gdp_gaps, 0)))]
+  }
+  debt_gdp_k <- ifelse(
+    is.finite(debt_gdp_parts) & debt_gdp_parts > 0 & is.finite(debt_gdp_df$Total),
+    debt_gdp_df$Total / debt_gdp_parts,
+    NA_real_
+  )
+  debt_gdp_df$Domestic <- debt_gdp_df$Domestic * debt_gdp_k
+  debt_gdp_df$External <- debt_gdp_df$Total - debt_gdp_df$Domestic
+}
+```
+
+```{r fig3-gdp-chart, fig.width=7, fig.height=4.3, eval=has_debt_gdp_live}
+# Same three-series treatment as Figures 1 and 2, sharing series_colors so
+# Total/Domestic/External read the same colour across all three charts.
+debt_gdp_long <- debt_gdp_df %>%
+  pivot_longer(cols = c(Total, Domestic, External), names_to = "Series", values_to = "Ratio") %>%
+  filter(!is.na(Ratio)) %>%
+  mutate(Series = factor(Series, levels = c("Total", "Domestic", "External")))
+
+debt_gdp_endlabels <- debt_gdp_long %>%
+  group_by(Series) %>%
+  filter(Quarter == max(Quarter)) %>%
+  ungroup() %>%
+  mutate(label = sprintf("%.1f%% %s", Ratio, Series))
+
+debt_gdp_xlsx_name    <- "figure3_debt_to_gdp_data.xlsx"
+debt_gdp_download_url <- paste0(
+  "https://wnwamalwa.github.io/quarterly-macro-debt-report/",
+  debt_gdp_xlsx_name
+)
+debt_gdp_xlsx_ok <- tryCatch({
+  if (!requireNamespace("openxlsx", quietly = TRUE)) stop("openxlsx not installed")
+  if (!dir.exists("docs")) dir.create("docs")
+  gdp_wb <- openxlsx::createWorkbook()
+  openxlsx::addWorksheet(gdp_wb, "Figure 3 Data")
+  openxlsx::writeData(
+    gdp_wb, "Figure 3 Data",
+    debt_gdp_long %>% rename(Date = Quarter, `Debt (% of GDP)` = Ratio),
+    headerStyle = openxlsx::createStyle(textDecoration = "bold")
+  )
+  openxlsx::setColWidths(gdp_wb, "Figure 3 Data", cols = 1:3, widths = c(12, 12, 18))
+  openxlsx::saveWorkbook(gdp_wb, file.path("docs", debt_gdp_xlsx_name), overwrite = TRUE)
+  TRUE
+}, error = function(e) {
+  message("Could not write Figure 3 Excel export (", conditionMessage(e), ") -- Download Excel link will be omitted from this render.")
+  FALSE
+})
+
+debt_gdp_tip        <- debt_gdp_endlabels %>% filter(Series == "Total")
+debt_gdp_asat_label <- format_as_at_date(debt_gdp_tip$Quarter)
+
+debt_gdp_xspan <- as.numeric(max(debt_gdp_long$Quarter) - min(debt_gdp_long$Quarter))
+
+# Y-axis ticks every 10 percentage points, rounded up to the next tick above
+# the highest point -- same "next break up" logic as Figures 1 and 2.
+debt_gdp_y_top_break <- ceiling(max(debt_gdp_long$Ratio) / 10) * 10
+
+debt_gdp_asat_x <- debt_gdp_tip$Quarter - debt_gdp_xspan * 0.10
+debt_gdp_asat_y <- debt_gdp_y_top_break - 10 * 0.20
+
+ggplot(debt_gdp_long, aes(x = Quarter, y = Ratio, colour = Series, group = Series)) +
+  geom_line(linewidth = 0.8) +
+  scale_colour_manual(values = series_colors) +
+  geom_text(data = debt_gdp_endlabels,
+            aes(x = Quarter, y = Ratio, label = label, colour = Series),
+            hjust = 0, nudge_x = 250, size = 2.3, fontface = "bold",
+            show.legend = FALSE) +
+  annotate("curve",
+           x = debt_gdp_asat_x, y = debt_gdp_asat_y,
+           xend = debt_gdp_tip$Quarter, yend = debt_gdp_tip$Ratio,
+           curvature = -0.2, angle = 90,
+           arrow = arrow(length = unit(0.08, "inches"), type = "closed"),
+           linewidth = 0.4, colour = "gray30") +
+  annotate("text",
+           x = debt_gdp_asat_x - 4, y = debt_gdp_asat_y,
+           label = debt_gdp_asat_label,
+           hjust = 1, vjust = 0.5, size = 2.3, fontface = "italic",
+           colour = "gray30") +
+  key_metrics_x_scale() +
+  key_metrics_year_layer +
+  scale_y_continuous(
+    breaks = seq(0, debt_gdp_y_top_break, by = 10),
+    labels = function(x) sprintf("%d%%", as.integer(round(x))),
+    expand = expansion(mult = c(0.02, 0.14))
+  ) +
+  labs(x = NULL, y = NULL, colour = NULL) +
+  theme_gdocs() +
+  key_metrics_x_theme +
+  coord_cartesian(
+    xlim = c(min(debt_gdp_long$Quarter), max(debt_gdp_long$Quarter)),
+    clip = "off"
+  ) +
+  theme(legend.position = "none",
+        plot.margin = margin(t = 16, r = 80, b = 65, l = 5.5),
+        axis.text.y = element_text(colour = "black", size = 8))
+```
+
+```{r fig3-gdp-download, results='asis', eval=has_debt_gdp_live}
+if (debt_gdp_xlsx_ok) {
+  cat(sprintf(
+    "\n\\vspace{-1.6em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s (\\href{%s}{Download Excel})}\n\\end{flushleft}\n",
+    debt_gdp_source_note, debt_gdp_download_url
+  ))
+} else {
+  cat(sprintf(
+    "\n\\vspace{-1.6em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s}\n\\end{flushleft}\n",
+    debt_gdp_source_note
+  ))
+}
+```
+
+```{r fig3-gdp-summary, results='asis'}
+# Narrative + composition table, matching Figures 1 and 2: same three time
+# points and same column labels, with each cell expressed as a share of GDP.
+debt_gdp_summary_ok <- tryCatch({
+  if (!has_debt_gdp_live) stop("no debt-to-GDP series available this render")
+  if (!debt_summary_ok)   stop("Figure 1 summary table unavailable -- its date points/labels are reused here.")
+
+  fmt_gdp <- function(x) {
+    if (!is.finite(x)) return("n/a")
+    sprintf("%.1f%%", x)
+  }
+
+  gdp_cols            <- c("Total", "Domestic", "External")
+  debt_gdp_prev_q_row <- value_at_date(debt_gdp_df, prev_q_end_date, gdp_cols)
+  debt_gdp_q_row      <- value_at_date(debt_gdp_df, q_end_date,      gdp_cols)
+  debt_gdp_asat_row   <- debt_gdp_df[which.max(debt_gdp_df$Quarter), ]
+
+  # Round in a way that cannot break the addition: Total and Domestic are
+  # rounded, External is taken as the difference between them.
+  gdp_column_cells <- function(row) {
+    tot <- round(row$Total, 1)
+    dom <- round(row$Domestic, 1)
+    ext <- if (is.finite(tot) && is.finite(dom)) round(tot - dom, 1) else NA_real_
+    c(fmt_gdp(dom), fmt_gdp(ext), fmt_gdp(tot))
+  }
+
+  debt_gdp_summary_table <- data.frame(Metric = c("Domestic", "External", "Total"),
+                                        check.names = FALSE, stringsAsFactors = FALSE)
+  debt_gdp_summary_table[[col1_label]] <- gdp_column_cells(debt_gdp_prev_q_row)
+  debt_gdp_summary_table[[col2_label]] <- gdp_column_cells(debt_gdp_q_row)
+  debt_gdp_summary_table[[col3_label]] <- gdp_column_cells(debt_gdp_asat_row)
+
+  # Decade-ago comparison, in percentage points rather than a multiple --
+  # the series is already a ratio, so "x times" would not read sensibly.
+  debt_gdp_latest  <- debt_gdp_asat_row
+  debt_gdp_10y_row <- value_at_date(debt_gdp_df, years_back_date(debt_gdp_latest$Quarter, 10), gdp_cols)
+  debt_gdp_10y_chg <- debt_gdp_latest$Total - debt_gdp_10y_row$Total
+
+  debt_gdp_narrative <- sprintf(
+    "\n**%s**, the public debt as a share of GDP now stands at **%s**, compared with **%s** a decade ago -- a change of **%.1f percentage points**. The composition of debt relative to GDP has evolved as follows:\n\n",
+    format_as_at_date(debt_gdp_latest$Quarter),
+    fmt_gdp(debt_gdp_latest$Total),
+    fmt_gdp(debt_gdp_10y_row$Total),
+    debt_gdp_10y_chg
+  )
+
+  TRUE
+}, error = function(e) {
+  message("Could not build the debt-to-GDP summary (", conditionMessage(e), ") -- section omitted from this render.")
+  FALSE
+})
+
+if (debt_gdp_summary_ok) {
+  cat(debt_gdp_narrative)
+}
+```
+
+```{r fig3-gdp-table, results='asis', eval=debt_gdp_summary_ok}
+cat(iea_fullwidth_table(debt_gdp_summary_table, bold_rows = 3,
+      caption = "Public debt as a share of GDP, by composition"))
+```
+
+```{r debt-gdp-bullets, results='asis', eval=debt_gdp_summary_ok}
+# Three short readings of the ratio in Table 3. Everything emitted here is
+# RAW LaTeX, so every percent sign must be escaped -- pct() does that; the
+# plain fmt_gdp() used by the table above must never be used here.
+pct <- function(x, d = 1) {
+  if (!is.finite(x)) return("n/a")
+  sprintf(paste0("%.", d, "f\\%%"), x)
+}
+
+gdp3_cols   <- c("Total", "Domestic", "External")
+gdp3_months <- debt_gdp_latest$Total / 100 * 12
+
+# Twelve-month movements, plus the implied level of nominal GDP (the debt
+# stock divided by its own ratio), which puts pending bills on the same
+# basis as the ratio in Table 3.
+gdp3_ok <- tryCatch({
+  gdp3_1y   <- value_at_date(debt_gdp_df, years_back_date(debt_gdp_latest$Quarter, 1), gdp3_cols)
+  debt3_now <- value_at_date(key_metrics_trend_df, debt_gdp_latest$Quarter, "Total")
+  debt3_1y  <- value_at_date(key_metrics_trend_df,
+                             years_back_date(debt_gdp_latest$Quarter, 1), "Total")
+
+  gdp3_1y_chg  <- debt_gdp_latest$Total - gdp3_1y$Total
+  debt3_growth <- (debt3_now$Total / debt3_1y$Total - 1) * 100
+  gdp3_now_lvl <- debt3_now$Total / (debt_gdp_latest$Total / 100)
+  gdp3_growth  <- (gdp3_now_lvl / (debt3_1y$Total / (gdp3_1y$Total / 100)) - 1) * 100
+  pending_pct_gdp <- (pending_bills_trillion * 1000) / gdp3_now_lvl * 100
+
+  all(is.finite(c(gdp3_1y_chg, debt3_growth, gdp3_growth, pending_pct_gdp)))
+}, error = function(e) FALSE)
+
+# Prefer the sheet's own GDP growth indicator; fall back to the declared value.
+real_growth <- if (exists("has_gdp_g") && isTRUE(has_gdp_g)) {
+  tryCatch(as.numeric(tail(df_gdp_g$Value, 1)), error = function(e) real_gdp_growth_fallback)
+} else {
+  real_gdp_growth_fallback
+}
+if (!is.finite(real_growth)) real_growth <- real_gdp_growth_fallback
+
+# Optional clauses, kept out of the bullet text so each bullet is one call.
+frag_pend <- if (gdp3_ok) sprintf(" (about %s of GDP)", pct(pending_pct_gdp)) else ""
+frag_grow <- if (gdp3_ok) sprintf(
+  " -- over the past year debt grew \\textbf{%s} against nominal GDP of \\textbf{%s}",
+  pct(debt3_growth), pct(gdp3_growth)) else ""
+
+cat("\\begin{itemize}[itemsep=5pt, parsep=0pt, topsep=2pt, leftmargin=1.4em]\n")
+
+cat(sprintf(
+  "\\item \\textbf{The ratio is high and still climbing.} At \\textbf{%s of GDP} -- roughly \\textbf{%.0f months} of national output -- up \\textbf{%.1f percentage points} over the decade. Figure 3 shows a sustained net increase in the debt stock; the sharp decline in early 2024 is on account of the bullet repayment of the Eurobond.\n",
+  pct(debt_gdp_latest$Total), gdp3_months, debt_gdp_10y_chg
+))
+
+cat(sprintf(
+  "\\item \\textbf{Domestic debt is rising faster, and the stock is not the whole claim.} Domestic borrowing equals \\textbf{%s of GDP} against \\textbf{%s} external. Pending bills of \\textbf{KSh %.1f trillion}%s sit outside this ratio -- and servicing already costs \\textbf{KSh %.1f trillion}, \\textbf{%s of it domestic}, the costlier class.\n",
+  pct(debt_gdp_latest$Domestic), pct(debt_gdp_latest$External),
+  pending_bills_trillion, frag_pend,
+  service_total_trillion, pct(service_domestic_share)
+))
+
+cat(sprintf(
+  "\\item \\textbf{Growth is too slow to outrun the servicing bill.} Real growth of about \\textbf{%s} cannot generate the revenue to cover \\textbf{KSh %.1f trillion} of debt service%s. While borrowing outpaces output, servicing absorbs a rising share of revenue and crowds out development spending.\n",
+  pct(real_growth), service_total_trillion, frag_grow
+))
+
+cat("\\end{itemize}\n\n")
+```
+
+\newpage
+
+# Debt Sustainability Analysis
+
+```{r dsa-intro, results='asis'}
+# Two sentences only -- the whole section is budgeted to one page, so the
+# argument is carried by the bullets and the two exhibits, not by prose.
+dsa_live_ratio <- if (exists("debt_gdp_summary_ok") && isTRUE(debt_gdp_summary_ok)) {
+  sprintf("%.1f\\%%", debt_gdp_latest$Total)
+} else {
+  NA_character_
+}
+
+cat(sprintf(
+  "Figures 1 to 3 describe a debt stock growing in absolute terms, per person, and relative to the economy that must service it%s. The National Treasury tests whether that burden remains sustainable through a Debt Sustainability Analysis (DSA); on the %s assessment, all four headline indicators have been breached.\n\n",
+  if (!is.na(dsa_live_ratio)) sprintf(" -- reaching %s of GDP", dsa_live_ratio) else "",
+  mtds_year
+))
+```
+
+```{r dsa-threshold-table, results='asis'}
+# Status is pre-rendered LaTeX (a red bold flag) and so is passed through
+# iea_fullwidth_table's raw_cols, which skips escaping for that column.
+dsa_threshold_table <- data.frame(
+  Indicator = dsa_indicators$Indicator,
+  Threshold = sprintf("%.0f%%", dsa_indicators$Threshold),
+  `Latest Value` = sprintf("%.1f%%", dsa_indicators$Latest),
+  Excess = sprintf("+%.1f pp", dsa_indicators$Latest - dsa_indicators$Threshold),
+  Status = ifelse(dsa_indicators$Latest > dsa_indicators$Threshold,
+                  "\\textcolor{iearedflag}{\\textbf{Breached}}",
+                  "\\textcolor{ieagreen}{\\textbf{Within}}"),
+  check.names = FALSE, stringsAsFactors = FALSE
+)
+
+cat(iea_fullwidth_table(
+  dsa_threshold_table, raw_cols = "Status",
+  caption = sprintf("Debt sustainability indicators against thresholds, %s", mtds_year)
+))
+cat(sprintf(
+  "\n\\vspace{-0.9em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: National Treasury, Medium Term Debt Strategy (MTDS), %s.}\n\\end{flushleft}\n\\vspace{0.2em}\n",
+  mtds_year
+))
+```
+
+```{r dsa-findings, results='asis'}
+# Raw LaTeX itemize with enumitem spacing options rather than markdown
+# bullets: the tight list keeps the whole section on one page, and doing it
+# here rather than globally leaves every other list in the report untouched.
+dsa_worst <- dsa_indicators[which.max(dsa_indicators$Latest / dsa_indicators$Threshold), ]
+
+cat("\\begin{itemize}[noitemsep, topsep=1pt, leftmargin=1.4em]\n")
+
+cat(sprintf(
+  "\\item The present value of public debt stands at \\textbf{%.1f\\%% of GDP} against a \\textbf{%.0f\\%%} benchmark -- an overshoot of \\textbf{%.1f percentage points}.\n",
+  dsa_indicators$Latest[1], dsa_indicators$Threshold[1],
+  dsa_indicators$Latest[1] - dsa_indicators$Threshold[1]
+))
+
+cat(sprintf(
+  "\\item All three external indicators are also breached, with \\textbf{%s} furthest beyond its limit at \\textbf{%.1f\\%%} against \\textbf{%.0f\\%%}.\n",
+  dsa_worst$Indicator, dsa_worst$Latest, dsa_worst$Threshold
+))
+
+cat("\\item Every breached measure except the first is assessed against exports or revenue rather than GDP, so the strain falls directly on the government's \\textit{capacity to pay}, not merely on the size of the stock.\n")
+
+cat("\\end{itemize}\n\n")
+```
+
+### Figure 4. The Cost of Domestic versus External Debt
+
+```{r dsa-wair-chart, fig.width=7, fig.height=2.3}
+# Deliberately the same colour language as Figures 1 to 3 -- Domestic in
+# green and External in gold -- so the reader carries the composition split
+# straight across from the trend charts into the cost comparison.
+wair_df <- data.frame(
+  Series = factor(c("Domestic", "External"), levels = c("Domestic", "External")),
+  Rate   = c(wair_domestic, wair_external)
+)
+wair_multiple <- wair_domestic / wair_external
+
+ggplot(wair_df, aes(x = Series, y = Rate, fill = Series)) +
+  geom_col(width = 0.42) +
+  scale_fill_manual(values = series_colors) +
+  geom_text(aes(label = sprintf("%.1f%%", Rate)),
+            vjust = -0.5, size = 3.6, fontface = "bold", colour = "gray20") +
+  annotate("text",
+           x = 2.55, y = wair_domestic * 0.60,
+           label = sprintf("Domestic debt costs\n%.1f times more\nthan external debt", wair_multiple),
+           hjust = 0.5, size = 2.9, fontface = "italic", colour = "gray30") +
+  scale_y_continuous(labels = function(x) sprintf("%d%%", as.integer(x)),
+                     expand = expansion(mult = c(0, 0.20))) +
+  scale_x_discrete(expand = expansion(add = c(0.6, 1.7))) +
+  labs(x = NULL, y = NULL) +
+  theme_gdocs() +
+  theme(legend.position = "none",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.text.x = element_text(size = 9, colour = "black"),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        plot.margin = margin(t = 6, r = 8, b = 2, l = 5.5))
+```
+
+```{r dsa-implications, results='asis'}
+# Closing bullets. The stock-versus-service contrast that previously needed
+# its own table is carried here as a single line, computed from the same
+# live quarter-end row that drives Figures 1 to 3.
+cat(sprintf(
+  "\n\\vspace{-1.5em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: National Treasury, MTDS %s. Weighted average interest rate by debt class.}\n\\end{flushleft}\n\\vspace{0.2em}\n",
+  mtds_year
+))
+
+cat("\\begin{itemize}[noitemsep, topsep=1pt, leftmargin=1.4em]\n")
+
+cat(sprintf(
+  "\\item \\textbf{The cause is composition.} Domestic borrowing carries a weighted average interest rate of \\textbf{%.1f\\%%} against \\textbf{%.1f\\%%} on external debt, so each shilling shifted from external to domestic financing costs roughly \\textbf{%.1f times} as much to carry.\n",
+  wair_domestic, wair_external, wair_multiple
+))
+
+# Only claim the stock-versus-service gap when the live quarter-end row is
+# actually available this render; otherwise state the service side alone.
+dsa_stock_dom <- tryCatch({
+  if (!debt_summary_ok) stop("no live quarter-end row")
+  q_end_row$Domestic / q_end_row$Total * 100
+}, error = function(e) NA_real_)
+
+if (is.finite(dsa_stock_dom)) {
+  cat(sprintf(
+    "\\item \\textbf{The consequence is the repayment burden.} Domestic debt is \\textbf{%.1f\\%%} of the stock at the close of %s but absorbs \\textbf{%.1f\\%%} of the KSh %.1f trillion debt service budget -- a gap of \\textbf{%.1f percentage points} between what is owed and what must be paid this year. External debt is the mirror image, at \\textbf{%.1f\\%%} of the stock but \\textbf{%.1f\\%%} of repayments.\n",
+    dsa_stock_dom, col2_label, service_domestic_share, service_total_trillion,
+    service_domestic_share - dsa_stock_dom,
+    100 - dsa_stock_dom, service_external_share
+  ))
+} else {
+  cat(sprintf(
+    "\\item \\textbf{The consequence is the repayment burden.} Domestic debt absorbs \\textbf{%.1f\\%%} of the KSh %.1f trillion debt service budget against \\textbf{%.1f\\%%} for external debt.\n",
+    service_domestic_share, service_total_trillion, service_external_share
+  ))
+}
+
+cat(sprintf(
+  "\\item \\textbf{Direction matters more than level.} A stock growing at the pace of Figure 1, increasingly financed domestically at %.1f\\%%, lifts the servicing bill faster than the stock itself -- which is why the debt service indicators are breached alongside the debt-to-GDP ratio. The MTDS projects the ratio will stay above benchmark until at least \\textbf{%s}.\n",
+  wair_domestic, mtds_above_benchmark_until
+))
+
+cat("\\end{itemize}\n\n")
+```
+
+\newpage
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+<!-- 5. GDP & ECONOMIC GROWTH                                   -->
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+```{r gdp-header, eval=has_gdp || has_gdp_g, results='asis'}
+cat("# GDP & Economic Growth\n\n")
+```
+
+```{r gdp-level, fig.width=7, fig.height=3.5, eval=has_gdp}
+gdp_plot <- tail_factor(df_gdp %>% rename(GDP = Value))
+
+ggplot(gdp_plot, aes(x = Quarter, y = GDP)) +
+  geom_line(aes(group = 1), colour = iea_dark, linewidth = 1) +
+  geom_point(colour = iea_green, size = 2.5) +
+  geom_text(aes(label = format(round(GDP, 0), big.mark = ",")),
+            vjust = -1, size = 2.6, colour = "gray30") +
+  scale_y_continuous(labels = comma_format(), expand = expansion(mult = c(0.05, 0.12))) +
+  labs(title = "Nominal GDP (KSh Billions)",
+       x = NULL, y = NULL, caption = "Source: KNBS via IEA Kenya") +
+  theme_iea() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8))
+```
+
+```{r gdp-growth, fig.width=7, fig.height=3.5, eval=has_gdp_g}
+gdp_g_plot <- tail_factor(df_gdp_g %>% rename(Growth = Value))
+
+ggplot(gdp_g_plot, aes(x = Quarter, y = Growth)) +
+  geom_col(aes(fill = Growth > 0), width = 0.6, show.legend = FALSE) +
+  scale_fill_manual(values = c("TRUE" = iea_green, "FALSE" = iea_red)) +
+  geom_text(aes(label = sprintf("%.1f%%", Growth)),
+            vjust = ifelse(gdp_g_plot$Growth >= 0, -0.5, 1.3),
+            size = 2.6, colour = "gray30") +
+  geom_hline(yintercept = 0, colour = "gray50") +
+  scale_y_continuous(expand = expansion(mult = c(0.12, 0.12))) +
+  labs(title = "Real GDP Growth Rate (%)", x = NULL, y = NULL,
+       caption = "Source: KNBS via IEA Kenya") +
+  theme_iea() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8))
+```
+
+```{r gdp-narrative, eval=has_gdp, results='asis'}
+latest_gdp_val <- tail(df_gdp$Value, 1)
+cat(sprintf(
+  "Nominal GDP stood at **KSh %.1f billion** in the most recent quarter available. ",
+  latest_gdp_val
+))
+if (has_gdp_g) {
+  latest_growth <- tail(df_gdp_g$Value, 1)
+  cat(sprintf("Real GDP growth was **%.1f%%**.", latest_growth))
+}
+if (has_debt_gdp) {
+  cat(sprintf(
+    " At a debt-to-GDP ratio of **%.1f%%**, Kenya's debt burden remains a key fiscal sustainability concern.",
+    tail(df_debt_gdp$Debt_to_GDP, 1)
+  ))
+}
+cat("\n")
+```
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+<!-- 6. FISCAL PERFORMANCE                                      -->
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+```{r fiscal-header, eval=has_fiscal_joined, results='asis'}
+cat("\\newpage\n\n# Fiscal Performance\n\n")
+```
+
+```{r fiscal-bar, fig.width=7, fig.height=4, eval=has_fiscal_joined}
+fis_plot <- tail_factor(df_fiscal)
+
+fis_long <- fis_plot %>%
+  select(Quarter, Revenue, Expenditure) %>%
+  pivot_longer(cols = c(Revenue, Expenditure), names_to = "Type", values_to = "Amount")
+
+ggplot(fis_long, aes(x = Quarter, y = Amount, fill = Type)) +
+  geom_col(position = "dodge", alpha = 0.9, width = 0.6) +
+  scale_fill_manual(values = c("Revenue" = iea_green, "Expenditure" = iea_red)) +
+  scale_y_continuous(labels = comma_format(), expand = expansion(mult = c(0, 0.08))) +
+  labs(title = "Government Revenue vs Expenditure (KSh Billions)",
+       x = NULL, y = NULL, fill = NULL,
+       caption = "Source: National Treasury via IEA Kenya") +
+  theme_iea() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8))
+```
+
+```{r fiscal-deficit, fig.width=7, fig.height=3.5, eval=has_fiscal_joined}
+ggplot(fis_plot, aes(x = Quarter, y = Deficit)) +
+  geom_col(aes(fill = Deficit > 0), width = 0.6, show.legend = FALSE) +
+  scale_fill_manual(values = c("TRUE" = iea_red, "FALSE" = iea_green)) +
+  geom_text(aes(label = sprintf("%.1f", Deficit)),
+            vjust = ifelse(fis_plot$Deficit >= 0, -0.5, 1.3),
+            size = 2.6, colour = "gray30") +
+  geom_hline(yintercept = 0, colour = "gray50") +
+  scale_y_continuous(expand = expansion(mult = c(0.12, 0.12))) +
+  labs(title = "Fiscal Deficit / Surplus (KSh Billions)",
+       subtitle = "Positive = deficit · Negative = surplus",
+       x = NULL, y = NULL,
+       caption = "Source: National Treasury via IEA Kenya") +
+  theme_iea() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8))
+```
+
+```{r fiscal-table, eval=has_fiscal_joined}
+fiscal_display <- df_fiscal %>%
+  mutate(across(where(is.numeric), ~ round(.x, 1)))
+
+kable(fiscal_display, format = "latex", booktabs = TRUE,
+      col.names = c("Quarter", "Revenue", "Expenditure", "Deficit"),
+      align = c("l", "r", "r", "r"),
+      caption = "Fiscal Performance (KSh Billions)") %>%
+  kable_styling(latex_options = c("hold_position", "scale_down"), full_width = FALSE) %>%
+  row_spec(0, bold = TRUE, color = "white", background = iea_green)
+```
+
+```{r fiscal-narrative, eval=has_fiscal_joined, results='asis'}
+latest_rev_v <- tail(df_fiscal$Revenue, 1)
+latest_exp_v <- tail(df_fiscal$Expenditure, 1)
+latest_def   <- tail(df_fiscal$Deficit, 1)
+cov_ratio    <- (latest_rev_v / latest_exp_v) * 100
+
+cat(sprintf(
+  "Revenue covered **%.1f%%** of expenditure in the latest quarter. ",
+  cov_ratio
+))
+cat(sprintf(
+  "The fiscal %s of **KSh %.1f bn** contributes directly to debt accumulation, as the gap is financed through domestic and external borrowing.\n",
+  ifelse(latest_def > 0, "deficit", "surplus"), abs(latest_def)
+))
+```
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+<!-- 7. EXCHANGE RATE                                           -->
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+```{r forex-header, eval=has_forex, results='asis'}
+cat("\\newpage\n\n# Exchange Rate\n\n")
+```
+
+```{r forex-chart, fig.width=7, fig.height=3.5, eval=has_forex}
+fx_plot <- tail_factor(df_forex %>% rename(Rate = Value))
+
+ggplot(fx_plot, aes(x = Quarter, y = Rate)) +
+  geom_line(aes(group = 1), colour = iea_orange, linewidth = 1.2) +
+  geom_point(colour = iea_dark, size = 2.5) +
+  geom_text(aes(label = sprintf("%.1f", Rate)),
+            vjust = -1, size = 2.6, colour = "gray30") +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.12))) +
+  labs(title = "KES / USD Exchange Rate",
+       subtitle = "Higher value = weaker shilling",
+       x = NULL, y = NULL,
+       caption = "Source: CBK via IEA Kenya") +
+  theme_iea() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8))
+```
+
+```{r forex-narrative, eval=has_forex, results='asis'}
+latest_fx <- tail(df_forex$Value, 1)
+n_fx <- nrow(df_forex)
+prev_fx <- if (n_fx >= 2) df_forex$Value[n_fx - 1] else NA
+
+if (!is.na(prev_fx)) {
+  fx_change_pct <- ((latest_fx - prev_fx) / prev_fx) * 100
+  direction <- ifelse(fx_change_pct > 0, "depreciated", "appreciated")
+  cat(sprintf(
+    "The Kenya Shilling %s by **%.1f%%** against the US Dollar quarter-on-quarter (from %.2f to %.2f). ",
+    direction, abs(fx_change_pct), prev_fx, latest_fx
+  ))
+  if (has_composition) {
+    cat(sprintf(
+      "With external debt at **KSh %.1f bn** (%.1f%% of total), exchange rate movements have a material impact on the shilling-denominated value of external obligations.\n",
+      latest_ext, ext_share
+    ))
+  }
+} else {
+  cat(sprintf("The KES/USD rate stood at **%.2f** in the latest quarter.\n", latest_fx))
+}
+```
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+<!-- 8. COST OF DEBT                                            -->
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+```{r wacd-header, eval=has_wacd_joined, results='asis'}
+cat("\\newpage\n\n# Cost of Debt\n\n")
+```
+
+```{r wacd-chart, fig.width=7, fig.height=3.8, eval=has_wacd_joined}
+wacd_plot <- tail_factor(df_wacd_combined)
+
+wacd_long <- wacd_plot %>%
+  pivot_longer(cols = c(Dom_Rate, Ext_Rate), names_to = "Type", values_to = "Rate") %>%
+  mutate(Type = recode(Type, Dom_Rate = "Domestic", Ext_Rate = "External"))
+
+ggplot(wacd_long, aes(x = Quarter, y = Rate, colour = Type, group = Type)) +
+  geom_line(linewidth = 1.1) +
+  geom_point(size = 2.5) +
+  scale_colour_manual(values = c("Domestic" = iea_green, "External" = iea_gold)) +
+  scale_y_continuous(labels = function(x) paste0(x, "%"),
+                     expand = expansion(mult = c(0.05, 0.1))) +
+  labs(title = "Weighted Average Cost of Debt (%)",
+       subtitle = "Domestic vs External interest rates",
+       x = NULL, y = NULL, colour = NULL,
+       caption = "Source: National Treasury via IEA Kenya") +
+  theme_iea() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8))
+```
+
+```{r wacd-narrative, eval=has_wacd_joined, results='asis'}
+latest_dom_r <- tail(df_wacd_combined$Dom_Rate, 1)
+latest_ext_r <- tail(df_wacd_combined$Ext_Rate, 1)
+spread <- abs(latest_dom_r - latest_ext_r)
+
+cat(sprintf(
+  "The weighted average interest rate on domestic debt was **%.2f%%**, compared to **%.2f%%** on external debt. ",
+  latest_dom_r, latest_ext_r
+))
+cat(sprintf(
+  "The spread of **%.2f percentage points** reflects the premium embedded in shorter-tenor, shilling-denominated domestic instruments.\n",
+  spread
+))
+
+# Annual interest cost estimate
+if (has_composition) {
+  est_dom_cost <- latest_dom * (latest_dom_r / 100)
+  est_ext_cost <- latest_ext * (latest_ext_r / 100)
+  est_total_cost <- est_dom_cost + est_ext_cost
+  cat(sprintf(
+    "\nAt current stock levels and rates, the estimated annual interest bill is approximately **KSh %.1f bn** (domestic: KSh %.1f bn, external: KSh %.1f bn).\n",
+    est_total_cost, est_dom_cost, est_ext_cost
+  ))
+}
+```
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+<!-- 9. METHODOLOGY & SOURCES                                   -->
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+
+\newpage
+
+# Data Sources
+
+This report draws on publicly available data published by:
+
+- **Central Bank of Kenya (CBK)** — monthly and quarterly public debt statistics, exchange rates
+- **The National Treasury** — budget execution reports, fiscal outturns, cost of debt
+- **Kenya National Bureau of Statistics (KNBS)** — GDP, national accounts, population estimates
+
+Data is ingested via Google Sheets, processed in R, and rendered using Quarto with XeLaTeX. The report is regenerated automatically through GitHub Actions whenever the underlying data or analysis is updated.
+
+**Definitions:**
+
+- *Domestic debt* — Treasury bills, Treasury bonds, and overdraft at the Central Bank
+- *External debt* — bilateral, multilateral, and commercial external obligations
+- *Debt-to-GDP* — total public debt as a percentage of nominal GDP
+- *Debt per capita* — total public debt divided by estimated population
+
+\vfill
+
+\begin{center}
+\textcolor{ieagold}{\rule{0.5\textwidth}{1pt}}
 
 \vspace{0.3cm}
 
- 
+{\small\color{gray} Prepared by the Institute of Economic Affairs (IEA) Kenya}
 
-\textit{\today}
+{\small\color{gray} \textit{For research and analytical purposes only}}
 
-\vspace{1.2cm}
+{\small\color{gray} \url{https://www.ieakenya.or.ke}}
 \end{center}
-
-## Overview
-
-This report presents the most recent quarterly estimates of Kenya’s public debt stock, expressed in Kenya Shillings (KSh billions).
-
-```{r}
-
-library(googlesheets4)
-library(gargle) 
-library(dplyr) 
-library(ggplot2) 
-library(readr) 
-library(tidyr) 
-library(purrr) 
-library(stringr) 
-library(forcats)  
-library(rmarkdown)
-library(jsonlite)
-
-# if (nzchar(Sys.getenv("GSHEET_SERVICE_ACCOUNT"))) {
-#   # GitHub Actions / CI
-#   sa <- jsonlite::fromJSON(Sys.getenv("GSHEET_SERVICE_ACCOUNT"))
-#   gs4_auth(path = sa)
-# } else {
-#   # Local interactive session
-#   gs4_auth()
-# }
-
-
-if (file.exists("gsheets.json")) {
-  # GitHub Actions / CI
-  gs4_auth(path = "gsheets.json")
-} else if (interactive()) {
-  # Local development (browser login)
-  gs4_auth()
-} else {
-  # Safety fallback
-  gs4_deauth()
-}
-
-
- 
-
-
-
-sheet_url <- "https://docs.google.com/spreadsheets/d/11Y_EoYqFJOTTubbBCQkh1gV3kbX1cVQHapdzbwWUXK4"
-
-raw <- read_sheet(ss = sheet_url,sheet = "Debt Stock", skip = 3) %>%
-  filter(Indicator == "Total Public Debt (KSh bn)") %>%
-  select(-Indicator,-`#`) %>%    # remove label before transpose
-  t() %>%
-  as.data.frame() %>%
-  tibble::rownames_to_column("Quarter") %>%
-  rename(Value = V1) %>%
-  mutate(Value = as.numeric(Value)) %>%
-  filter(!is.na(Value)) 
-```
-
-```{r}
-raw %>%
-knitr::kable()
-```
-<- name: Inspect decoded credentials (temporary) CI regeneration marker Thu Apr 23 08:34:21 EAT 2026 -->

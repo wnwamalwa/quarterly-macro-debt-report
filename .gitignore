@@ -41,6 +41,10 @@ docs/*
 # ✅ BUT allow PDFs in docs (for GitHub Pages & dashboard downloads)
 !docs/*.pdf
 
+# ✅ AND allow the Figure 1 Excel data export (linked from the report's
+# "Download Excel" button, published to GitHub Pages alongside the PDF)
+!docs/*.xlsx
+
 
 ############################
 # Secrets & credentials (CRITICAL)
@@ -59,3 +63,9 @@ secrets/
 *.tmp
 *.swp
 *~
+.positai
+
+############################
+# Timestamped local safety backups (never commit)
+############################
+*.backup-*
