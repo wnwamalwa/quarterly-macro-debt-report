@@ -208,6 +208,6 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add docs/quarterly_macro_debt_report_ieakenya.pdf docs/figure1_debt_trend_data.xlsx docs/figure2_debt_per_capita_data.xlsx docs/figure3_debt_to_gdp_data.xlsx
-          git commit -m "Update latest quarterly debt report PDF and Figure 1 data export" || echo "No changes to commit"
+          git add docs/quarterly_macro_debt_report_ieakenya.pdf docs/kenya_public_debt_data.xlsx
+          git commit -m "Update latest quarterly debt report PDF and public debt data export" || echo "No changes to commit"
           git push

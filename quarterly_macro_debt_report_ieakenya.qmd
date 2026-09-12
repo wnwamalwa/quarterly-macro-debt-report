@@ -766,33 +766,23 @@ key_metrics_fig1_endlabels <- key_metrics_fig1_long %>%
   ungroup() %>%
   mutate(label = sprintf("KSh %05.2f T %s", Debt / 1000, Series))
 
-# Export the exact data behind this chart (key_metrics_fig1_long: Quarter x
-# Series x Debt, long format) to a small Excel file published alongside the
-# PDF via GitHub Pages (docs/), so the "Download Excel" link below the
-# chart always matches what's plotted -- regenerated fresh on every render.
-key_metrics_fig1_xlsx_name    <- "figure1_debt_trend_data.xlsx"
-key_metrics_fig1_download_url <- paste0(
-  "https://wnwamalwa.github.io/quarterly-macro-debt-report/",
-  key_metrics_fig1_xlsx_name
-)
-key_metrics_fig1_xlsx_ok <- tryCatch({
-  if (!requireNamespace("openxlsx", quietly = TRUE)) stop("openxlsx not installed")
-  if (!dir.exists("docs")) dir.create("docs")
-  fig1_wb <- openxlsx::createWorkbook()
-  openxlsx::addWorksheet(fig1_wb, "Figure 1 Data")
-  openxlsx::writeData(
-    fig1_wb, "Figure 1 Data",
-    key_metrics_fig1_long %>%
-      rename(Date = Quarter, `Debt (KSh Billion)` = Debt),
-    headerStyle = openxlsx::createStyle(textDecoration = "bold")
-  )
-  openxlsx::setColWidths(fig1_wb, "Figure 1 Data", cols = 1:3, widths = c(12, 12, 18))
-  openxlsx::saveWorkbook(fig1_wb, file.path("docs", key_metrics_fig1_xlsx_name), overwrite = TRUE)
-  TRUE
-}, error = function(e) {
-  message("Could not write Figure 1 Excel export (", conditionMessage(e), ") -- Download Excel link will be omitted from this render.")
-  FALSE
-})
+# Figures 1, 2 and 3 now share ONE Excel download instead of three separate
+# files (kenya_public_debt_data.xlsx: a Snapshot sheet, the full
+# Amount/Proportion/Per Capita/As % of GDP time series, and a Notes &
+# Sources sheet). That workbook is actually built in the
+# debt-data-xlsx-export chunk near the end of the document, once Figures 2
+# and 3 have computed their own series -- this just defines the shared
+# filename/URL and readiness flag that all three "Download Excel" captions
+# below use, so they always agree on whether to show a link and where it
+# points. Since the real file isn't written until later, readiness here
+# just checks that openxlsx is installed rather than attempting a write.
+debt_data_xlsx_name    <- "kenya_public_debt_data.xlsx"
+debt_data_base_url     <- "https://wnwamalwa.github.io/quarterly-macro-debt-report/"
+debt_data_download_url <- paste0(debt_data_base_url, debt_data_xlsx_name)
+debt_data_xlsx_ok      <- requireNamespace("openxlsx", quietly = TRUE)
+if (!debt_data_xlsx_ok) {
+  message("openxlsx not installed -- Download Excel links will be omitted from this render.")
+}
 
 # Figure 1's own source note drops the raw API domain and is combined
 # with the real "Download Excel" hyperlink into one line printed below
@@ -890,10 +880,10 @@ ggplot(key_metrics_fig1_long, aes(x = Quarter, y = Debt, colour = Series, group 
 # only added when the Excel export actually succeeded this render, so it
 # never points at a file that was not published; the source text alone
 # still always prints, so attribution is never lost.
-if (key_metrics_fig1_xlsx_ok) {
+if (debt_data_xlsx_ok) {
   cat(sprintf(
     "\n\\vspace{-1.6em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s (\\href{%s}{Download Excel})}\n\\end{flushleft}\n",
-    key_metrics_fig1_source_note, key_metrics_fig1_download_url
+    key_metrics_fig1_source_note, debt_data_download_url
   ))
 } else {
   cat(sprintf(
@@ -1205,28 +1195,12 @@ debt_pc_endlabels <- debt_pc_long %>%
 # Per_Capita) to a small Excel file published alongside the PDF via GitHub
 # Pages (docs/), mirroring Figure 1's own "Download Excel" link --
 # regenerated fresh on every render.
-debt_pc_xlsx_name    <- "figure2_debt_per_capita_data.xlsx"
-debt_pc_download_url <- paste0(
-  "https://wnwamalwa.github.io/quarterly-macro-debt-report/",
-  debt_pc_xlsx_name
-)
-debt_pc_xlsx_ok <- tryCatch({
-  if (!requireNamespace("openxlsx", quietly = TRUE)) stop("openxlsx not installed")
-  if (!dir.exists("docs")) dir.create("docs")
-  pc_wb <- openxlsx::createWorkbook()
-  openxlsx::addWorksheet(pc_wb, "Figure 2 Data")
-  openxlsx::writeData(
-    pc_wb, "Figure 2 Data",
-    debt_pc_long %>% rename(Date = Quarter, `Debt per Capita (KSh)` = Per_Capita),
-    headerStyle = openxlsx::createStyle(textDecoration = "bold")
-  )
-  openxlsx::setColWidths(pc_wb, "Figure 2 Data", cols = 1:3, widths = c(12, 12, 20))
-  openxlsx::saveWorkbook(pc_wb, file.path("docs", debt_pc_xlsx_name), overwrite = TRUE)
-  TRUE
-}, error = function(e) {
-  message("Could not write Figure 2 Excel export (", conditionMessage(e), ") -- Download Excel link will be omitted from this render.")
-  FALSE
-})
+# Figure 2 no longer writes its own Excel file -- it shares the single
+# kenya_public_debt_data.xlsx download defined in the key-metrics-total
+# chunk (debt_data_xlsx_name/debt_data_download_url/debt_data_xlsx_ok),
+# which the debt-data-xlsx-export chunk near the end of the document
+# builds from debt_pc_df among other series. Nothing further to compute
+# here.
 
 # Same dynamic "As at [date]" curved-arrow callout as Figure 1, pointing at
 # the tip of the Total line -- ordinal_suffix()/format_as_at_date() are
@@ -1287,10 +1261,10 @@ ggplot(debt_pc_long, aes(x = Quarter, y = Per_Capita, colour = Series, group = S
 # Combined "Source: ... (Download Excel)" line, matching Figure 1's exact
 # same pattern -- the source text always prints, the download link only
 # when the Excel export actually succeeded this render.
-if (debt_pc_xlsx_ok) {
+if (debt_data_xlsx_ok) {
   cat(sprintf(
     "\n\\vspace{-1.6em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s (\\href{%s}{Download Excel})}\n\\end{flushleft}\n",
-    debt_pc_source_note, debt_pc_download_url
+    debt_pc_source_note, debt_data_download_url
   ))
 } else {
   cat(sprintf(
@@ -1587,28 +1561,11 @@ debt_gdp_endlabels <- debt_gdp_long %>%
   ungroup() %>%
   mutate(label = sprintf("%.1f%% %s", Ratio, Series))
 
-debt_gdp_xlsx_name    <- "figure3_debt_to_gdp_data.xlsx"
-debt_gdp_download_url <- paste0(
-  "https://wnwamalwa.github.io/quarterly-macro-debt-report/",
-  debt_gdp_xlsx_name
-)
-debt_gdp_xlsx_ok <- tryCatch({
-  if (!requireNamespace("openxlsx", quietly = TRUE)) stop("openxlsx not installed")
-  if (!dir.exists("docs")) dir.create("docs")
-  gdp_wb <- openxlsx::createWorkbook()
-  openxlsx::addWorksheet(gdp_wb, "Figure 3 Data")
-  openxlsx::writeData(
-    gdp_wb, "Figure 3 Data",
-    debt_gdp_long %>% rename(Date = Quarter, `Debt (% of GDP)` = Ratio),
-    headerStyle = openxlsx::createStyle(textDecoration = "bold")
-  )
-  openxlsx::setColWidths(gdp_wb, "Figure 3 Data", cols = 1:3, widths = c(12, 12, 18))
-  openxlsx::saveWorkbook(gdp_wb, file.path("docs", debt_gdp_xlsx_name), overwrite = TRUE)
-  TRUE
-}, error = function(e) {
-  message("Could not write Figure 3 Excel export (", conditionMessage(e), ") -- Download Excel link will be omitted from this render.")
-  FALSE
-})
+# Figure 3 no longer writes its own Excel file either -- same shared
+# kenya_public_debt_data.xlsx download as Figures 1 and 2
+# (debt_data_xlsx_name/debt_data_download_url/debt_data_xlsx_ok, defined in
+# the key-metrics-total chunk), built in the debt-data-xlsx-export chunk
+# right after this section from debt_gdp_df among the other series.
 
 debt_gdp_tip        <- debt_gdp_endlabels %>% filter(Series == "Total")
 debt_gdp_asat_label <- format_as_at_date(debt_gdp_tip$Quarter)
@@ -1660,10 +1617,10 @@ ggplot(debt_gdp_long, aes(x = Quarter, y = Ratio, colour = Series, group = Serie
 ```
 
 ```{r fig3-gdp-download, results='asis', eval=has_debt_gdp_live}
-if (debt_gdp_xlsx_ok) {
+if (debt_data_xlsx_ok) {
   cat(sprintf(
     "\n\\vspace{-1.6em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s (\\href{%s}{Download Excel})}\n\\end{flushleft}\n",
-    debt_gdp_source_note, debt_gdp_download_url
+    debt_gdp_source_note, debt_data_download_url
   ))
 } else {
   cat(sprintf(
@@ -1671,6 +1628,202 @@ if (debt_gdp_xlsx_ok) {
     debt_gdp_source_note
   ))
 }
+```
+
+```{r debt-data-xlsx-export, results='asis'}
+# Builds the single shared kenya_public_debt_data.xlsx workbook that all
+# three figures' "Download Excel" links point at (debt_data_download_url,
+# defined in the key-metrics-total chunk). Runs here because it needs
+# debt_pc_df (Figure 2) and debt_gdp_df (Figure 3) as well as
+# key_metrics_trend_df (Figure 1) -- all three are finished computing by
+# this point. Three sheets:
+#   1. Snapshot     -- latest date only, Domestic/External/Total across
+#                      all four blocks, for someone who just wants "the
+#                      current numbers" without opening the full series.
+#   2. Full Data    -- Date x {Amount, Proportion, Per Capita, As % of
+#                      GDP} x {Domestic, External, Total}, most recent
+#                      date first. Amount is KSh Billion as published.
+#                      Proportion is each series' share of that date's
+#                      Total (Domestic/Total, External/Total, and
+#                      Total/Total which is always 100%), x100 and
+#                      rounded to a whole number. Per Capita is
+#                      debt_pc_df rounded (already KSh, no rescaling).
+#                      As % of GDP is debt_gdp_df rounded -- it is
+#                      already ratio x 100 from the Figure 3 computation,
+#                      so this rounds rather than re-multiplying by 100.
+#   3. Notes & Sources -- units, data sources, the domestic/external
+#                      reconciliation method, and when this was generated.
+debt_data_xlsx_write_ok <- tryCatch({
+  if (!requireNamespace("openxlsx", quietly = TRUE)) stop("openxlsx not installed")
+
+  amount_df <- key_metrics_trend_df %>%
+    transmute(Date = Quarter,
+              Amount__Domestic = Domestic,
+              Amount__External = External,
+              Amount__Total    = Total) %>%
+    mutate(
+      Proportion__Domestic = round(Amount__Domestic / Amount__Total * 100),
+      Proportion__External = round(Amount__External / Amount__Total * 100),
+      Proportion__Total    = round(Amount__Total    / Amount__Total * 100)
+    )
+
+  pc_df <- if (exists("debt_pc_df") && !is.null(debt_pc_df) && nrow(debt_pc_df) > 0) {
+    debt_pc_df %>%
+      transmute(Date = Quarter,
+                PerCapita__Domestic = round(Domestic),
+                PerCapita__External = round(External),
+                PerCapita__Total    = round(Total))
+  } else {
+    tibble(Date = as.Date(character()), PerCapita__Domestic = numeric(),
+           PerCapita__External = numeric(), PerCapita__Total = numeric())
+  }
+
+  gdp_df <- if (exists("debt_gdp_df") && !is.null(debt_gdp_df) && nrow(debt_gdp_df) > 0) {
+    debt_gdp_df %>%
+      transmute(Date = Quarter,
+                PctGDP__Domestic = round(Domestic),
+                PctGDP__External = round(External),
+                PctGDP__Total    = round(Total))
+  } else {
+    tibble(Date = as.Date(character()), PctGDP__Domestic = numeric(),
+           PctGDP__External = numeric(), PctGDP__Total = numeric())
+  }
+
+  debt_data_wide <- amount_df %>%
+    left_join(pc_df,  by = "Date") %>%
+    left_join(gdp_df, by = "Date") %>%
+    arrange(desc(Date))
+
+  out_cols <- c("Date",
+                "Amount__Domestic", "Amount__External", "Amount__Total",
+                "Proportion__Domestic", "Proportion__External", "Proportion__Total",
+                "PerCapita__Domestic", "PerCapita__External", "PerCapita__Total",
+                "PctGDP__Domestic", "PctGDP__External", "PctGDP__Total")
+  debt_data_wide <- debt_data_wide[, out_cols]
+
+  wb <- openxlsx::createWorkbook()
+
+  hdr_style <- openxlsx::createStyle(textDecoration = "bold", halign = "center",
+                                      valign = "center", border = "TopBottomLeftRight",
+                                      fgFill = "#1F3864", fontColour = "#FFFFFF", wrapText = TRUE)
+  title_style <- openxlsx::createStyle(fontSize = 13, textDecoration = "bold")
+  note_style  <- openxlsx::createStyle(fontSize = 10, fontColour = "#595959")
+  section_style <- openxlsx::createStyle(fontSize = 11, textDecoration = "bold",
+                                          fgFill = "#D9E1F2")
+
+  # ---- Sheet 1: Snapshot --------------------------------------------------
+  openxlsx::addWorksheet(wb, "Snapshot")
+  latest <- debt_data_wide[1, ]
+  snapshot_asat <- format_as_at_date(latest$Date)
+
+  snapshot_tbl <- data.frame(
+    Metric   = c("Amount (KSh Billion)", "Proportion (%)", "Per Capita (KSh)", "As % of GDP (%)"),
+    Domestic = c(latest$Amount__Domestic, latest$Proportion__Domestic,
+                 latest$PerCapita__Domestic, latest$PctGDP__Domestic),
+    External = c(latest$Amount__External, latest$Proportion__External,
+                 latest$PerCapita__External, latest$PctGDP__External),
+    Total    = c(latest$Amount__Total, latest$Proportion__Total,
+                 latest$PerCapita__Total, latest$PctGDP__Total),
+    check.names = FALSE
+  )
+
+  openxlsx::writeData(wb, "Snapshot", "Kenya Public Debt -- Snapshot", startRow = 1, startCol = 1)
+  openxlsx::addStyle(wb, "Snapshot", title_style, rows = 1, cols = 1)
+  openxlsx::writeData(wb, "Snapshot", snapshot_asat, startRow = 2, startCol = 1)
+  openxlsx::addStyle(wb, "Snapshot", note_style, rows = 2, cols = 1)
+  openxlsx::writeData(wb, "Snapshot", snapshot_tbl, startRow = 4, startCol = 1,
+                       headerStyle = hdr_style)
+  openxlsx::addStyle(wb, "Snapshot", openxlsx::createStyle(numFmt = "#,##0"),
+                      rows = 5:8, cols = 2:4, gridExpand = TRUE, stack = TRUE)
+  openxlsx::setColWidths(wb, "Snapshot", cols = 1:4, widths = c(24, 14, 14, 14))
+  openxlsx::writeData(wb, "Snapshot",
+                       "See the Full Data sheet for the complete time series, and Notes & Sources for units and methodology.",
+                       startRow = 10, startCol = 1)
+  openxlsx::addStyle(wb, "Snapshot", note_style, rows = 10, cols = 1)
+
+  # ---- Sheet 2: Full Data --------------------------------------------------
+  openxlsx::addWorksheet(wb, "Full Data")
+
+  group_header_row <- 1
+  col_header_row   <- 2
+  data_start_row   <- 3
+
+  group_labels <- matrix(c("", "Amount", "", "", "Proportion", "", "",
+                            "Per Capita", "", "", "As % of GDP", "", ""), nrow = 1)
+  col_labels   <- matrix(c("Date",
+                            "Domestic", "External", "Total",
+                            "Domestic (%)", "External (%)", "Total (%)",
+                            "Domestic", "External", "Total",
+                            "Domestic (%)", "External (%)", "Total (%)"), nrow = 1)
+
+  openxlsx::writeData(wb, "Full Data", group_labels,
+                       startRow = group_header_row, startCol = 1, colNames = FALSE)
+  openxlsx::writeData(wb, "Full Data", col_labels,
+                       startRow = col_header_row, startCol = 1, colNames = FALSE)
+  openxlsx::writeData(wb, "Full Data", debt_data_wide,
+                       startRow = data_start_row, startCol = 1, colNames = FALSE)
+
+  openxlsx::mergeCells(wb, "Full Data", cols = 1,     rows = group_header_row:col_header_row)
+  openxlsx::mergeCells(wb, "Full Data", cols = 2:4,   rows = group_header_row)
+  openxlsx::mergeCells(wb, "Full Data", cols = 5:7,   rows = group_header_row)
+  openxlsx::mergeCells(wb, "Full Data", cols = 8:10,  rows = group_header_row)
+  openxlsx::mergeCells(wb, "Full Data", cols = 11:13, rows = group_header_row)
+
+  openxlsx::addStyle(wb, "Full Data", hdr_style,
+                      rows = group_header_row:col_header_row, cols = 1:13,
+                      gridExpand = TRUE, stack = TRUE)
+  openxlsx::addStyle(wb, "Full Data", openxlsx::createStyle(numFmt = "yyyy-mm-dd"),
+                      rows = data_start_row:(data_start_row + nrow(debt_data_wide) - 1), cols = 1,
+                      gridExpand = TRUE, stack = TRUE)
+
+  openxlsx::setColWidths(wb, "Full Data", cols = 1:13, widths = c(12, rep(11, 12)))
+  openxlsx::freezePane(wb, "Full Data", firstActiveRow = data_start_row, firstActiveCol = 2)
+
+  # ---- Sheet 3: Notes & Sources -------------------------------------------
+  openxlsx::addWorksheet(wb, "Notes & Sources")
+  r <- 1
+  write_line <- function(txt, style = NULL, blank_after = FALSE) {
+    openxlsx::writeData(wb, "Notes & Sources", txt, startRow = r, startCol = 1)
+    if (!is.null(style)) openxlsx::addStyle(wb, "Notes & Sources", style, rows = r, cols = 1)
+    r <<- r + 1 + as.integer(blank_after)
+  }
+
+  write_line("Kenya Public Debt -- Notes & Sources", title_style, blank_after = TRUE)
+  write_line(sprintf("Generated: %s", format(Sys.time(), "%d %B %Y, %H:%M %Z")))
+  write_line("Report: IEA Kenya Quarterly Macro & Public Debt Report", blank_after = TRUE)
+
+  write_line("Units", section_style)
+  write_line("Amount: KSh Billion (as published by source).")
+  write_line("Proportion: each series' share of that date's Total debt, as a percentage (Domestic/Total, External/Total; Total/Total is always 100%).")
+  write_line("Per Capita: KSh per person, Total/Domestic/External debt divided by population on the same date.")
+  write_line("As % of GDP: Total/Domestic/External debt divided by nominal GDP on the same date, as a percentage.", blank_after = TRUE)
+
+  write_line("Data sources", section_style)
+  if (exists("key_metrics_source_note"))  write_line(paste("Amount:", key_metrics_source_note))
+  if (exists("debt_pc_source_note") && !is.null(debt_pc_source_note))    write_line(paste("Per Capita:", debt_pc_source_note))
+  if (exists("debt_gdp_source_note") && !is.null(debt_gdp_source_note)) write_line(paste("As % of GDP:", debt_gdp_source_note))
+  r <- r + 1
+
+  write_line("Methodology note", section_style)
+  write_line("Where the published Total and the Domestic/External split do not sum exactly (a fraction of a percent, typically an FX-valuation timing difference on external debt), Domestic is scaled onto the published Total (Domestic' = Domestic x Total / (Domestic+External)) and External is taken as the remainder (External' = Total - Domestic'). This keeps the published Total exact and preserves the source's own domestic:external ratio to the last decimal.")
+  if (exists("debt_pc_gap_pct_max") && is.finite(debt_pc_gap_pct_max)) {
+    write_line(sprintf("Largest such gap closed in the Per Capita series: %.2f%%.", debt_pc_gap_pct_max))
+  }
+  if (exists("debt_gdp_gap_pct_max") && is.finite(debt_gdp_gap_pct_max)) {
+    write_line(sprintf("Largest such gap closed in the As %% of GDP series: %.2f%%.", debt_gdp_gap_pct_max))
+  }
+
+  openxlsx::setColWidths(wb, "Notes & Sources", cols = 1, widths = 110)
+
+  if (!dir.exists("docs")) dir.create("docs")
+  openxlsx::saveWorkbook(wb, file.path("docs", debt_data_xlsx_name), overwrite = TRUE)
+  TRUE
+}, error = function(e) {
+  message("Could not write the consolidated debt-data Excel export (",
+          conditionMessage(e), ") -- docs/", debt_data_xlsx_name,
+          " was left as whatever a previous render produced.")
+  FALSE
+})
 ```
 
 ```{r fig3-gdp-summary, results='asis'}
