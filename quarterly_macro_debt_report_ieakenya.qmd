@@ -12,6 +12,16 @@ format:
     colorlinks: true
     linkcolor: "blue"
     urlcolor: "blue"
+    # Quarto's PDF format defaults block-headings to true, which makes
+    # pandoc's template inject \usepackage{titlesec} plus its own
+    # \titleformat{\paragraph}{...} ahead of our own titlesec setup below.
+    # That template-injected \titleformat{\paragraph} call is incompatible
+    # with the current TeX Live kernel and crashes with "Argument of
+    # \paragraph has an extra }" during preamble setup -- before the
+    # document body is even read. The report has no #### / ##### headings
+    # (only # and ###, which we style ourselves further down), so nothing
+    # is lost by turning this default off.
+    block-headings: false
     include-in-header:
       text: |
         \usepackage{graphicx}
