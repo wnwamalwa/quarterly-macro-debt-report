@@ -503,27 +503,15 @@ value_at_date <- function(df, target_date, cols) {
 \end{center}
 
 ```{r title-period, results='asis'}
-# Canonical raw-file URL for this rendered PDF itself, so a reader who has
-# a printed or forwarded copy can find the current version online. Kept as
-# the raw.githubusercontent.com link (matching the site's own download
-# button) rather than the GitHub Pages mirror, per project preference.
-report_pdf_url <- paste0(
-  "https://raw.githubusercontent.com/wnwamalwa/quarterly-macro-debt-report/",
-  "main/docs/quarterly_macro_debt_report_ieakenya.pdf"
-)
-
 cat(sprintf(
-  "\\begin{center}\n{\\large\\color{gray} %s (%s)}\n\n\\vspace{0.15cm}\n\n\\textit{Published %s}\n\n\\vspace{0.15cm}\n\n{\\footnotesize\\color{gray} \\href{%s}{Download the latest PDF}}\n\\end{center}\n",
+  "\\begin{center}\n{\\large\\color{gray} %s (%s)}\n\n\\vspace{0.15cm}\n\n\\textit{Published %s}\n\\end{center}\n",
   reporting_period$quarter, reporting_period$range,
-  format(Sys.Date(), "%d %B %Y"),
-  report_pdf_url
+  format(Sys.Date(), "%d %B %Y")
 ))
 ```
 
 \begin{center}
-\vspace{0.3cm}
 \textcolor{ieagold}{\rule{0.6\textwidth}{1.5pt}}
-\vspace{0.1cm}
 \end{center}
 
 <!-- ═══════════════════════════════════════════════════════════ -->
