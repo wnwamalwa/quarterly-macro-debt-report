@@ -755,12 +755,16 @@ key_metrics_x_scale <- function(right_expand = 0.015) {
 }
 # Month labels rotated 90 degrees (vertical) so they don't collide at ~54
 # ticks across the full history; the bold year row sits further below to
-# clear the now-taller vertical month labels, and the bottom margin is
-# widened further still to leave room for the source-note row below that.
+# clear the now-taller vertical month labels. (This margin used to be
+# widened further still to leave room for a source-note row drawn inside
+# the plot itself -- key_metrics_source_layer below -- but that row moved
+# out into its own LaTeX line under the chart, via the *-download chunks'
+# \vspace{-1.6em}, so the extra margin was removed to close the resulting
+# gap between the chart and that caption line.)
 key_metrics_x_theme <- list(
   coord_cartesian(clip = "off"),
   theme(axis.text.x  = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 5),
-        plot.margin  = margin(t = 5.5, r = 8, b = 65, l = 5.5))
+        plot.margin  = margin(t = 5.5, r = 8, b = 30, l = 5.5))
 )
 ```
 
@@ -889,7 +893,7 @@ ggplot(key_metrics_fig1_long, aes(x = Quarter, y = Debt, colour = Series, group 
     clip = "off"
   ) +
   theme(legend.position = "none",
-        plot.margin = margin(t = 16, r = 80, b = 65, l = 5.5),
+        plot.margin = margin(t = 16, r = 80, b = 30, l = 5.5),
         axis.text.y = element_text(colour = "black",size = 8))
 ```
 
@@ -1273,7 +1277,7 @@ ggplot(debt_pc_long, aes(x = Quarter, y = Per_Capita, colour = Series, group = S
     clip = "off"
   ) +
   theme(legend.position = "none",
-        plot.margin = margin(t = 16, r = 80, b = 65, l = 5.5),
+        plot.margin = margin(t = 16, r = 80, b = 30, l = 5.5),
         axis.text.y = element_text(colour = "black", size = 8))
 ```
 
@@ -1632,7 +1636,7 @@ ggplot(debt_gdp_long, aes(x = Quarter, y = Ratio, colour = Series, group = Serie
     clip = "off"
   ) +
   theme(legend.position = "none",
-        plot.margin = margin(t = 16, r = 80, b = 65, l = 5.5),
+        plot.margin = margin(t = 16, r = 80, b = 30, l = 5.5),
         axis.text.y = element_text(colour = "black", size = 8))
 ```
 
