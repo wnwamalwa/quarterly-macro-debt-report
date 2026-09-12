@@ -23,8 +23,17 @@ jobs:
         uses: actions/checkout@v4
 
       # 2. Set up R
+      # use-public-rspm installs from Posit's public Package Manager, which
+      # serves pre-built binaries matched to the runner's Ubuntu version
+      # instead of compiling every package from CRAN source. This is the
+      # official r-lib fix for CRAN-source installs that intermittently
+      # fail or hang on a single package deep in a long dependency chain
+      # (seen twice in a row here on kableExtra) -- binaries also install
+      # far faster since nothing needs compiling.
       - name: Set up R
         uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
 
       # 2b. Cache R packages (MAJOR SPEED-UP)
       - name: Cache R packages
