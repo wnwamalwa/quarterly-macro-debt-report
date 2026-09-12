@@ -105,6 +105,8 @@ jobs:
             libuv1-dev \
             libharfbuzz-dev \
             libfreetype6-dev \
+            libfribidi-dev \
+            libpng-dev \
             fonts-dejavu \
             fonts-liberation
 
@@ -124,7 +126,13 @@ jobs:
             "kableExtra","scales","tibble"
           )
           new <- pkgs[!pkgs %in% rownames(installed.packages())]
-          if (length(new)) install.packages(new, repos = "https://cloud.r-project.org")
+          # No explicit repos= here: use-public-rspm (setup-r step above) has
+          # already pointed getOption("repos") at Posit'"'"'s public binary
+          # mirror. Hardcoding cloud.r-project.org here (the old code) forced
+          # every install back onto CRAN source tarballs, silently defeating
+          # that setting -- which is why textshaping/ragg/svglite/kableExtra
+          # kept failing to compile despite use-public-rspm: true being on.
+          if (length(new)) install.packages(new)
 
           # Verify every package the .qmd loads is actually installed, and
           # stop here with a clear message if not. Without this the failure
