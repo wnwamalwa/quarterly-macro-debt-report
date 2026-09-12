@@ -62,7 +62,7 @@ jobs:
           path: |
             ~/.TinyTeX
             ~/.local/share/TinyTeX
-          key: tinytex-${{ runner.os }}-v3
+          key: tinytex-${{ runner.os }}-v4
 
       # 3c. Install TinyTeX safely (skips if cached)
       - name: Install TinyTeX
@@ -89,7 +89,8 @@ jobs:
             "$TLMGR" update --self
             "$TLMGR" install \
               tabularx enumitem booktabs colortbl xcolor caption \
-              titlesec multicol fancyhdr lastpage float setspace
+              titlesec multicol fancyhdr lastpage float setspace \
+              xltabular ltablex
           fi
           exit 0
 
