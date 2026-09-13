@@ -293,13 +293,25 @@ df_pop   <- try_indicator("Population", "Population (millions)")
 # ══════════════════════════════════════════════════════════════════
 # REPORTING PERIOD
 # ══════════════════════════════════════════════════════════════════
+# The render runs on a GitHub Actions runner, whose system clock (and so
+# Sys.Date()/Sys.time() with no tz given) is UTC, not East Africa Time. The
+# nightly workflow schedule (cron '0 21 * * *') fires at 21:00 UTC on
+# purpose, to line up with 00:00 EAT -- but at 21:00 UTC the UTC calendar
+# date is still the PREVIOUS day, so any date derived from plain Sys.Date()
+# during that run is one day behind for the first 3 hours of every EAT day
+# (e.g. a render that should say "13 September" said "12 September"
+# instead). today_eat fixes this by asking for the date in Africa/Nairobi
+# explicitly; every date used below is derived from this, never from a
+# bare Sys.Date()/Sys.time().
+today_eat <- as.Date(format(Sys.time(), "%Y-%m-%d", tz = "Africa/Nairobi"))
+
 # Calendar quarters: Q1 = Jan-Mar, Q2 = Apr-Jun, Q3 = Jul-Sep, Q4 = Oct-Dec.
 # This report always covers the most recently COMPLETED quarter relative to
 # the render date -- i.e. whatever quarter we are currently *in* is not yet
 # finished, so the report looks one quarter back.
 # Example: rendered on 9 Sep 2026 (which falls in Q3, Jul-Sep) -> report
 # covers Q2 2026 (Apr-Jun 2026).
-get_reporting_quarter <- function(ref_date = Sys.Date()) {
+get_reporting_quarter <- function(ref_date = today_eat) {
   yr <- as.integer(format(ref_date, "%Y"))
   mo <- as.integer(format(ref_date, "%m"))
 
@@ -506,7 +518,7 @@ value_at_date <- function(df, target_date, cols) {
 cat(sprintf(
   "\\begin{center}\n{\\large\\color{gray} %s (%s)}\n\n\\vspace{0.15cm}\n\n\\textit{Published %s}\n\\end{center}\n",
   reporting_period$quarter, reporting_period$range,
-  format(Sys.Date(), "%d %B %Y")
+  format(today_eat, "%d %B %Y")
 ))
 ```
 
@@ -1801,7 +1813,7 @@ debt_data_xlsx_write_ok <- tryCatch({
   }
 
   write_line("Kenya Public Debt -- Notes & Sources", title_style, blank_after = TRUE)
-  write_line(sprintf("Generated: %s", format(Sys.time(), "%d %B %Y, %H:%M %Z")))
+  write_line(sprintf("Generated: %s", format(Sys.time(), "%d %B %Y, %H:%M %Z", tz = "Africa/Nairobi")))
   write_line("Report: IEA Kenya Quarterly Macro & Public Debt Report", blank_after = TRUE)
 
   write_line("Units", section_style)
