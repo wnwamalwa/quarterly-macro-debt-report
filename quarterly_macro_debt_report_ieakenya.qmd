@@ -305,6 +305,20 @@ df_pop   <- try_indicator("Population", "Population (millions)")
 # bare Sys.Date()/Sys.time().
 today_eat <- as.Date(format(Sys.time(), "%Y-%m-%d", tz = "Africa/Nairobi"))
 
+# The live debt-counter API timestamps its "current" snapshots in UTC
+# (e.g. "2026-09-14T07:17:22Z"). Reading just the date part with
+# as.Date(substr(ts, 1, 10)) -- as the "current" pulls below used to --
+# reintroduces the exact UTC/EAT boundary bug today_eat was created to
+# fix: during the same 00:00-03:00 EAT window described above, the UTC
+# calendar date is still the previous day, so the "As at" callouts (which
+# are stamped from these API snapshots) lag a day behind the "Published"
+# date at the top of the report. Route every API timestamp through this
+# helper instead, so "As at" and "Published" always agree.
+utc_ts_to_eat_date <- function(ts) {
+  as.Date(format(as.POSIXct(ts, format = "%Y-%m-%dT%H:%M:%OSZ", tz = "UTC"),
+                 "%Y-%m-%d", tz = "Africa/Nairobi"))
+}
+
 # Calendar quarters: Q1 = Jan-Mar, Q2 = Apr-Jun, Q3 = Jul-Sep, Q4 = Oct-Dec.
 # This report always covers the most recently COMPLETED quarter relative to
 # the render date -- i.e. whatever quarter we are currently *in* is not yet
@@ -654,7 +668,7 @@ current_snapshot <- tryCatch({
   }
   d <- parsed_cur$data
   list(
-    date     = as.Date(substr(d$timestamp, 1, 10)),
+    date     = utc_ts_to_eat_date(d$timestamp),
     Total    = round(as.numeric(d$total)    / 1e9, 2),
     Domestic = round(as.numeric(d$domestic) / 1e9, 2),
     External = round(as.numeric(d$external) / 1e9, 2)
@@ -1075,7 +1089,7 @@ pop_current_snapshot <- tryCatch({
   parsed_cur <- resp_body_json(resp_cur, simplifyVector = TRUE)
   if (!isTRUE(parsed_cur$success) || is.null(parsed_cur$data)) stop("current endpoint returned no usable data")
   list(
-    date       = as.Date(substr(parsed_cur$data$timestamp, 1, 10)),
+    date       = utc_ts_to_eat_date(parsed_cur$data$timestamp),
     Population = as.numeric(parsed_cur$data$population)
   )
 }, error = function(e) {
