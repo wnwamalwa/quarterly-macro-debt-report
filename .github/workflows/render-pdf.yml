@@ -5,14 +5,16 @@ on:
     branches: [ main ]
   workflow_dispatch:
   schedule:
-    # 21:00 UTC = 00:00 East Africa Time (UTC+3), every day.
-    # GitHub Actions cron is always UTC, so this is written as the UTC
-    # equivalent of local midnight.
-    - cron: '0 21 * * *'
+    # Twice a month, on the 1st and 15th at 10:17 Nairobi time (07:17 UTC),
+    # after the CBK checks in public-debt-counter (09:02-09:47) have updated
+    # Supabase. The report covers the last COMPLETED quarter, so a new
+    # edition appears automatically on 1 Jan/Apr/Jul/Oct; the runs in
+    # between refresh its "As at" figures.
+    - cron: '17 7 1,15 * *'
 
 jobs:
   render-pdf:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # pinned: ubuntu-latest moves to Ubuntu 26
 
     permissions:
       contents: write
@@ -164,6 +166,12 @@ jobs:
       # Output is tee'd so the failure step below can read it. pipefail keeps
       # quarto's own exit code rather than tee's.
       - name: Render PDF
+        env:
+          # Read debt, population and GDP straight from Supabase (the database
+          # behind kenyadebtcounter.vercel.app). Same values as the site's
+          # SUPABASE_URL and SUPABASE_ANON_KEY in Vercel.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           set -o pipefail
           quarto render quarterly_macro_debt_report_ieakenya.qmd --to pdf 2>&1 | tee render-output.log
@@ -205,6 +213,7 @@ jobs:
         run: |
           mkdir -p docs
           mv quarterly_macro_debt_report_ieakenya.pdf docs/
+          mv latest.json docs/latest.json
 
       # 8.5 Stash local changes (required before rebase)
       - name: Stash changes
@@ -226,6 +235,6 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add docs/quarterly_macro_debt_report_ieakenya.pdf docs/kenya_public_debt_data.xlsx
+          git add docs/quarterly_macro_debt_report_ieakenya.pdf docs/kenya_public_debt_data.xlsx docs/latest.json
           git commit -m "Update latest quarterly debt report PDF and public debt data export" || echo "No changes to commit"
           git push

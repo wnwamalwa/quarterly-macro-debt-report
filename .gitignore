@@ -53,6 +53,7 @@ docs/*
 secrets/
 .httr-oauth
 *.json
+!docs/latest.json
 *.key
 *.pem
 

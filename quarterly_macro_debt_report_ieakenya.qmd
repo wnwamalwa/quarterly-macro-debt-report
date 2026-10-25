@@ -192,6 +192,86 @@ DEBT_API_HISTORICAL <- "https://api.kenyadebtcounter.or.ke/api/debt/historical"
 DEBT_API_CURRENT    <- "https://api.kenyadebtcounter.or.ke/api/debt/current"
 
 # ══════════════════════════════════════════════════════════════════
+# DATA SOURCE: Supabase (the database behind kenyadebtcounter.vercel.app)
+# ══════════════════════════════════════════════════════════════════
+# The *_API_* URLs above belong to the old server (a vendor-held DigitalOcean
+# droplet), which reads the OLD df_debt / df_debt_metrics tables that the
+# pipeline no longer updates. kdc_api() answers the same requests straight
+# from the tables the live site uses (df_debt_historical, df_debt_current +
+# df_debt_growth_per_sec, df_pop, df_pop_metrics, df_gdp), in the old API's
+# response shape, so the code below is unchanged. It needs SUPABASE_URL and
+# SUPABASE_ANON_KEY (GitHub secrets in CI; .Renviron locally); without them it
+# falls back to the old API, and failing that to the Google Sheet.
+SB_URL <- sub("/(rest/v1)?/*$", "", trimws(Sys.getenv("SUPABASE_URL")))
+SB_KEY <- trimws(Sys.getenv("SUPABASE_ANON_KEY"))
+use_supabase <- nzchar(SB_URL) && nzchar(SB_KEY)
+
+sb_rows <- function(table, params) {
+  out <- list(); offset <- 0
+  repeat {
+    r <- request(sprintf("%s/rest/v1/%s?%s&limit=1000&offset=%d", SB_URL, table, params, offset)) %>%
+      req_headers(apikey = SB_KEY, Authorization = paste("Bearer", SB_KEY)) %>%
+      req_user_agent("IEA-Kenya-QuarterlyReport/1.0 (+quarto render)") %>%
+      req_timeout(25) %>%
+      req_perform() %>%
+      resp_body_json(simplifyVector = TRUE)
+    if (!is.data.frame(r) || nrow(r) == 0) break
+    out[[length(out) + 1]] <- r
+    if (nrow(r) < 1000) break
+    offset <- offset + 1000
+  }
+  if (!length(out)) stop("Supabase table ", table, " returned no rows")
+  bind_rows(out)
+}
+
+# Latest row's value projected to now at its growth-per-second rate (as the site does).
+sb_project <- function(value, gps, recorded) {
+  start <- as.POSIXct(substr(as.character(recorded), 1, 19), format = "%Y-%m-%d %H:%M:%S", tz = "Africa/Nairobi")
+  if (is.na(start)) start <- as.POSIXct(as.Date(substr(as.character(recorded), 1, 10)), tz = "Africa/Nairobi")
+  as.numeric(value) + as.numeric(gps) * max(0, as.numeric(difftime(Sys.time(), start, units = "secs")))
+}
+utc_stamp <- function() format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+
+kdc_api <- function(url) {
+  if (!use_supabase) {
+    return(request(url) %>%
+      req_user_agent("IEA-Kenya-QuarterlyReport/1.0 (+quarto render)") %>%
+      req_timeout(25) %>%
+      req_perform() %>%
+      resp_body_json(simplifyVector = TRUE))
+  }
+  endpoint <- sub("^https?://[^/]+", "", url)
+  data <- switch(endpoint,
+    "/api/debt/historical" = {
+      d <- sb_rows("df_debt_historical", "select=id,date,debt_dom,debt_ext,debt_ttl,created_at&order=date.asc,created_at.asc")
+      d %>%
+        mutate(date = substr(as.character(date), 1, 10)) %>%
+        group_by(date) %>% slice_tail(n = 1) %>% ungroup() %>%   # one row per date, latest upload wins
+        transmute(date, domestic = as.numeric(debt_dom), external = as.numeric(debt_ext), total = as.numeric(debt_ttl))
+    },
+    "/api/debt/current" = {
+      c0 <- sb_rows("df_debt_current", "select=*&order=date.desc")[1, ]
+      g0 <- sb_rows("df_debt_growth_per_sec", "select=*&order=date.desc")[1, ]
+      list(total    = sb_project(c0$debt_ttl, g0$gps_ttl, c0$date),
+           domestic = sb_project(c0$debt_dom, g0$gps_dom, c0$date),
+           external = sb_project(c0$debt_ext, g0$gps_ext, c0$date),
+           timestamp = utc_stamp())
+    },
+    "/api/indicators/population/historical" =
+      sb_rows("df_pop", "select=date,value&order=date.asc") %>% mutate(date = substr(as.character(date), 1, 10)),
+    "/api/population/current" = {
+      p0 <- sb_rows("df_pop_metrics", "select=*&order=date.desc")[1, ]
+      list(population = sb_project(p0$pop, p0$gps_pop, p0$date), timestamp = utc_stamp())
+    },
+    "/api/indicators/gdp/historical" =
+      sb_rows("df_gdp", "select=date,value&order=date.asc") %>% mutate(date = substr(as.character(date), 1, 10)),
+    stop("kdc_api: no Supabase mapping for ", endpoint)
+  )
+  list(success = TRUE, data = data)
+}
+KDC_SOURCE <- if (use_supabase) "Kenya Debt Counter (kenyadebtcounter.vercel.app)" else "Kenya Debt Counter live API"
+
+# ══════════════════════════════════════════════════════════════════
 # IEA COLOUR PALETTE
 # ══════════════════════════════════════════════════════════════════
 iea_green  <- "#2E7D32"
@@ -534,6 +614,12 @@ cat(sprintf(
   reporting_period$quarter, reporting_period$range,
   format(today_eat, "%d %B %Y")
 ))
+# Edition details for the website's report card (moved to docs/ by the workflow).
+jsonlite::write_json(
+  list(quarter = reporting_period$label, period = reporting_period$range,
+       published = format(today_eat, "%Y-%m-%d")),
+  "latest.json", auto_unbox = TRUE, pretty = TRUE
+)
 ```
 
 \begin{center}
@@ -609,11 +695,7 @@ mtds_above_benchmark_until <- "2029"
 # hiccup here doesn't break the whole report. Both charts below (Total, and
 # Domestic vs External) are built from this same pull.
 api_debt_hist <- tryCatch({
-  resp <- request(DEBT_API_HISTORICAL) %>%
-    req_user_agent("IEA-Kenya-QuarterlyReport/1.0 (+quarto render)") %>%
-    req_timeout(25) %>%
-    req_perform()
-  parsed <- resp_body_json(resp, simplifyVector = TRUE)
+  parsed <- kdc_api(DEBT_API_HISTORICAL)
   if (!isTRUE(parsed$success) || is.null(parsed$data) || nrow(parsed$data) == 0) {
     stop("API responded but returned no usable data (success=", parsed$success, ")")
   }
@@ -658,11 +740,7 @@ parse_quarter_label <- function(x) {
 # calendar months in between so the line doesn't jump straight from the
 # last historical point to today's value.
 current_snapshot <- tryCatch({
-  resp_cur <- request(DEBT_API_CURRENT) %>%
-    req_user_agent("IEA-Kenya-QuarterlyReport/1.0 (+quarto render)") %>%
-    req_timeout(25) %>%
-    req_perform()
-  parsed_cur <- resp_body_json(resp_cur, simplifyVector = TRUE)
+  parsed_cur <- kdc_api(DEBT_API_CURRENT)
   if (!isTRUE(parsed_cur$success) || is.null(parsed_cur$data)) {
     stop("current endpoint returned no usable data")
   }
@@ -710,7 +788,7 @@ append_current_with_interpolation <- function(hist_df, current) {
 if (!is.null(api_debt_hist)) {
   key_metrics_trend_df <- append_current_with_interpolation(api_debt_hist, current_snapshot)
   key_metrics_has_composition <- TRUE
-  key_metrics_source_note <- "Source: Kenya Debt Counter live API (api.kenyadebtcounter.or.ke)"
+  key_metrics_source_note <- paste0("Source: ", KDC_SOURCE)
 } else {
   key_metrics_trend_df <- tail_factor(df_all, max_n = nrow(df_all)) %>%  # full history, uncapped
     mutate(Quarter = parse_quarter_label(as.character(Quarter)))
@@ -1058,11 +1136,7 @@ POP_API_HISTORICAL <- "https://api.kenyadebtcounter.or.ke/api/indicators/populat
 POP_API_CURRENT    <- "https://api.kenyadebtcounter.or.ke/api/population/current"
 
 api_pop_hist <- tryCatch({
-  resp <- request(POP_API_HISTORICAL) %>%
-    req_user_agent("IEA-Kenya-QuarterlyReport/1.0 (+quarto render)") %>%
-    req_timeout(25) %>%
-    req_perform()
-  parsed <- resp_body_json(resp, simplifyVector = TRUE)
+  parsed <- kdc_api(POP_API_HISTORICAL)
   if (!isTRUE(parsed$success) || is.null(parsed$data) || nrow(parsed$data) == 0) {
     stop("API responded but returned no usable data (success=", parsed$success, ")")
   }
@@ -1082,11 +1156,7 @@ api_pop_hist <- tryCatch({
 })
 
 pop_current_snapshot <- tryCatch({
-  resp_cur <- request(POP_API_CURRENT) %>%
-    req_user_agent("IEA-Kenya-QuarterlyReport/1.0 (+quarto render)") %>%
-    req_timeout(25) %>%
-    req_perform()
-  parsed_cur <- resp_body_json(resp_cur, simplifyVector = TRUE)
+  parsed_cur <- kdc_api(POP_API_CURRENT)
   if (!isTRUE(parsed_cur$success) || is.null(parsed_cur$data)) stop("current endpoint returned no usable data")
   list(
     date       = utc_ts_to_eat_date(parsed_cur$data$timestamp),
@@ -1148,7 +1218,7 @@ if (!is.null(api_pop_hist)) {
 
   if (nrow(debt_pc_df) > 0) {
     has_debt_pc_live    <- TRUE
-    debt_pc_source_note <- "Source: Kenya Debt Counter live API"
+    debt_pc_source_note <- paste0("Source: ", KDC_SOURCE)
   }
 }
 
@@ -1450,11 +1520,7 @@ cat("\\end{itemize}\n\n")
 GDP_API_HISTORICAL <- "https://api.kenyadebtcounter.or.ke/api/indicators/gdp/historical"
 
 api_gdp_hist <- tryCatch({
-  resp <- request(GDP_API_HISTORICAL) %>%
-    req_user_agent("IEA-Kenya-QuarterlyReport/1.0 (+quarto render)") %>%
-    req_timeout(25) %>%
-    req_perform()
-  parsed <- resp_body_json(resp, simplifyVector = TRUE)
+  parsed <- kdc_api(GDP_API_HISTORICAL)
   if (!isTRUE(parsed$success) || is.null(parsed$data) || nrow(parsed$data) == 0) {
     stop("API responded but returned no usable data (success=", parsed$success, ")")
   }
@@ -1533,7 +1599,7 @@ if (!is.null(api_gdp_hist) && nrow(api_gdp_hist) >= 2) {
 
   if (!is.null(debt_gdp_df) && nrow(debt_gdp_df) > 0) {
     has_debt_gdp_live    <- TRUE
-    debt_gdp_source_note <- "Source: Kenya Debt Counter live API"
+    debt_gdp_source_note <- paste0("Source: ", KDC_SOURCE)
   }
 }
 
