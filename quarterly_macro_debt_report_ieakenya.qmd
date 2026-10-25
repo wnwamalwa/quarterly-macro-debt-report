@@ -974,12 +974,12 @@ ggplot(key_metrics_fig1_long, aes(x = Quarter, y = Debt, colour = Series, group 
 # still always prints, so attribution is never lost.
 if (debt_data_xlsx_ok) {
   cat(sprintf(
-    "\n\\vspace{-1.6em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s (\\href{%s}{Download Excel})}\n\\end{flushleft}\n",
+    "\n\\vspace{0.1em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s (\\href{%s}{Download Excel})}\n\\end{flushleft}\n",
     key_metrics_fig1_source_note, debt_data_download_url
   ))
 } else {
   cat(sprintf(
-    "\n\\vspace{-1.6em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s}\n\\end{flushleft}\n",
+    "\n\\vspace{0.1em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s}\n\\end{flushleft}\n",
     key_metrics_fig1_source_note
   ))
 }
@@ -1347,12 +1347,12 @@ ggplot(debt_pc_long, aes(x = Quarter, y = Per_Capita, colour = Series, group = S
 # when the Excel export actually succeeded this render.
 if (debt_data_xlsx_ok) {
   cat(sprintf(
-    "\n\\vspace{-1.6em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s (\\href{%s}{Download Excel})}\n\\end{flushleft}\n",
+    "\n\\vspace{0.1em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s (\\href{%s}{Download Excel})}\n\\end{flushleft}\n",
     debt_pc_source_note, debt_data_download_url
   ))
 } else {
   cat(sprintf(
-    "\n\\vspace{-1.6em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s}\n\\end{flushleft}\n",
+    "\n\\vspace{0.1em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s}\n\\end{flushleft}\n",
     debt_pc_source_note
   ))
 }
@@ -1699,12 +1699,12 @@ ggplot(debt_gdp_long, aes(x = Quarter, y = Ratio, colour = Series, group = Serie
 ```{r fig3-gdp-download, results='asis', eval=has_debt_gdp_live}
 if (debt_data_xlsx_ok) {
   cat(sprintf(
-    "\n\\vspace{-1.6em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s (\\href{%s}{Download Excel})}\n\\end{flushleft}\n",
+    "\n\\vspace{0.1em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s (\\href{%s}{Download Excel})}\n\\end{flushleft}\n",
     debt_gdp_source_note, debt_data_download_url
   ))
 } else {
   cat(sprintf(
-    "\n\\vspace{-1.6em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s}\n\\end{flushleft}\n",
+    "\n\\vspace{0.1em}\n\\begin{flushleft}\n{\\footnotesize\\color{gray} %s}\n\\end{flushleft}\n",
     debt_gdp_source_note
   ))
 }
@@ -2142,7 +2142,7 @@ ggplot(wair_df, aes(x = Series, y = Rate, fill = Series)) +
 # its own table is carried here as a single line, computed from the same
 # live quarter-end row that drives Figures 1 to 3.
 cat(sprintf(
-  "\n\\vspace{-0.4em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: National Treasury, MTDS %s. Weighted average interest rate by debt class.}\n\\end{flushleft}\n\\vspace{0.2em}\n",
+  "\n\\vspace{0.1em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: National Treasury, MTDS %s. Weighted average interest rate by debt class.}\n\\end{flushleft}\n\\vspace{0.2em}\n",
   mtds_year
 ))
 

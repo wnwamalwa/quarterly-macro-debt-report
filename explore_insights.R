@@ -56,7 +56,7 @@ ei_heading <- function(title) {
   cat(sprintf("\n### Figure %d. %s\n\n", ei_fig_n, title))
 }
 ei_source <- function(text) {
-  cat(sprintf("\n\\vspace{-1.2em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: %s.}\n\\end{flushleft}\n\\vspace{-0.3em}\n",
+  cat(sprintf("\n\\vspace{-0.5em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: %s.}\n\\end{flushleft}\n\\vspace{-0.3em}\n",
               iea_tex_escape(text)))
 }
 ei_text <- function(...) cat(paste0(..., "\n\n"))
