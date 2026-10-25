@@ -39,11 +39,11 @@ ei_render_thresholds()
 if (ei_has("/api/debt/deficit", "/api/debt/tax-revenue", "/api/debt/spending")) cat("\\newpage\n\n# How the Debt Fits in the Budget\n\n")
 ```
 
-```{r ei-deficit, results='asis', fig.width=7, fig.height=2.1}
+```{r ei-deficit, results='asis', fig.width=7, fig.height=1.9}
 ei_render_deficit()
 ```
 
-```{r ei-tax, results='asis', fig.width=7, fig.height=2.2}
+```{r ei-tax, results='asis', fig.width=7, fig.height=2.0}
 ei_render_tax()
 ```
 

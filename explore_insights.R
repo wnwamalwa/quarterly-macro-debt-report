@@ -272,10 +272,16 @@ ei_render_deficit <- function() {
   if (is.null(m) || !is.data.frame(m) || !nrow(m)) return(invisible(FALSE))
   m <- m[!is.na(m$gdp) & m$gdp > 0, ]
   if (nrow(m) < 12) return(invisible(FALSE))
+  # CBK's own months only (the site estimates the latest ones), and the
+  # deficit against ALL revenue: the API's `deficit` counts tax revenue and
+  # grants only, so subtract non-tax revenue, as the site's "All revenue"
+  # view and the EAC 3% ceiling do.
+  m <- m[m$kind == "actual", ]
+  if (nrow(m) < 12) return(invisible(FALSE))
   m$date <- as.Date(paste0(m$month, "-01"))
   m <- m[m$date >= max(m$date) - 365.25 * 10, ]
+  m$deficit <- m$deficit - m$nontax
   m$pct <- m$deficit / m$gdp * 100
-  m$est <- m$kind != "actual"
   last <- m[nrow(m), ]
   ei_heading("Budget Deficit over the Previous 12 Months (% of GDP)")
   ei_plot(
@@ -297,9 +303,8 @@ ei_render_deficit <- function() {
   fy_start <- if (as.integer(substr(last$month, 6, 7)) >= 7) as.integer(substr(last$month, 1, 4)) else as.integer(substr(last$month, 1, 4)) - 1L
   target <- if (is.data.frame(tg)) tg$pct_gdp[tg$fy_start == fy_start] else numeric(0)
   ei_text(sprintf(
-    "Over the 12 months to %s the government spent \\textbf{%s} more than it collected in revenue and grants, \\textbf{%s of GDP}%s, %s the East African Community's 3%% ceiling.%s Interest alone was %s over the same months.",
+    "Over the 12 months to %s the government spent \\textbf{%s} more than it collected in revenue and grants, \\textbf{%s of GDP}, %s the East African Community's 3%% ceiling.%s Interest alone was %s over the same months.",
     ei_month(last$month), ei_amt(last$deficit), ei_pct(last$pct),
-    if (isTRUE(last$est)) " (CBK's latest months estimated)" else "",
     if (last$pct > 3) "above" else "within",
     if (length(target)) sprintf(" The budget for FY %d/%02d targets %s.", fy_start, (fy_start + 1) %% 100, ei_pct(target[1])) else "",
     ei_amt(last$interest)
