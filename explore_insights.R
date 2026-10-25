@@ -165,34 +165,28 @@ ei_render_service <- function() {
   if (is.null(y) || !is.data.frame(y) || !nrow(y)) return(invisible(FALSE))
   y <- y[order(y$fy_start), ]
   y <- tail(y, 8)
+  gdp <- if (!is.null(y$gdp)) as.numeric(y$gdp) else rep(NA_real_, nrow(y))
   long <- rbind(
-    data.frame(fy = y$fiscal_year, part = "External principal", v = y$external_principal),
-    data.frame(fy = y$fiscal_year, part = "External interest",  v = y$external_interest),
-    data.frame(fy = y$fiscal_year, part = "Domestic principal", v = y$domestic_principal),
-    data.frame(fy = y$fiscal_year, part = "Domestic interest",  v = y$domestic_interest)
+    data.frame(fy = y$fiscal_year, part = "External principal", v = y$external_principal, gdp = gdp),
+    data.frame(fy = y$fiscal_year, part = "External interest",  v = y$external_interest,  gdp = gdp),
+    data.frame(fy = y$fiscal_year, part = "Domestic principal", v = y$domestic_principal, gdp = gdp),
+    data.frame(fy = y$fiscal_year, part = "Domestic interest",  v = y$domestic_interest,  gdp = gdp)
   )
   long$part <- factor(long$part, levels = c("External principal", "External interest", "Domestic principal", "Domestic interest"))
   long$fy <- factor(sub("^FY", "", long$fy), levels = sub("^FY", "", y$fiscal_year))
-  ei_heading("Public Debt Service by Fiscal Year (KSh Billion)")
-  ei_plot(
-    ggplot(long, aes(x = fy, y = v / 1e9, fill = part)) +
-      geom_col(width = 0.65) +
-      scale_fill_manual(values = c("External principal" = "#E6CF6B", "External interest" = iea_gold,
-                                   "Domestic principal" = iea_light, "Domestic interest" = iea_green)) +
-      scale_y_continuous(labels = label_comma(), expand = expansion(mult = c(0, 0.08))) +
-      labs(x = NULL, y = NULL) +
-      ei_theme() +
-      theme(panel.grid.major.y = element_line(colour = "gray92"))
-  )
-  ei_source("Controller of Budget, full-year National Government Budget Implementation Review Reports")
+  ei_heading("Public Debt Service by Fiscal Year")
+  ei_plot(ei_two_panel(long, c("External principal" = "#E6CF6B", "External interest" = iea_gold,
+                               "Domestic principal" = iea_light, "Domestic interest" = iea_green)))
+  ei_source("Controller of Budget, full-year National Government Budget Implementation Review Reports; KNBS GDP (fiscal-year average)")
   last <- y[nrow(y), ]
   prev <- if (nrow(y) > 1) y[nrow(y) - 1, ] else NULL
   rev_share <- if (!is.null(last$revenue) && !is.na(last$revenue) && last$revenue > 0) last$total / last$revenue * 100 else NA
   ei_text(sprintf(
-    "In %s the government paid \\textbf{%s} to service the public debt, %s on interest%s.%s%s",
-    ei_fy(last$fiscal_year), ei_amt(last$total), ei_amt(last$interest),
+    "In %s the government paid \\textbf{%s} to service the public debt%s, %s of it on interest.%s%s",
+    ei_fy(last$fiscal_year), ei_amt(last$total),
     if (!is.null(prev)) sprintf(" (%s %s than in %s)", ei_pct(abs(last$total / prev$total - 1) * 100),
                                  if (last$total >= prev$total) "more" else "less", ei_fy(prev$fiscal_year)) else "",
+    ei_amt(last$interest),
     if (!is.na(rev_share)) sprintf(" That is \\textbf{%s} of the year's revenue: %s of every KSh 100 collected.", ei_pct(rev_share),
                                    sprintf("KSh %.0f", rev_share)) else "",
     sprintf(" Domestic debt took \\textbf{%s} of the total.", ei_pct(last$domestic / last$total * 100))
@@ -312,29 +306,49 @@ ei_render_deficit <- function() {
   invisible(TRUE)
 }
 
-# Stacked bars of one category set per fiscal year, last `n` years.
-ei_years_long <- function(y, keys, labels, n = 8) {
-  y <- tail(y[order(y$fy_start), ], n)
-  vals <- y$values
-  out <- do.call(rbind, lapply(seq_along(keys), function(i) {
-    data.frame(fy = sub("^FY", "", y$fiscal_year), complete = y$complete,
-               part = labels[i], v = vals[[keys[i]]] %||% 0)
-  }))
-  out$fy <- factor(ifelse(out$complete, out$fy, paste0(out$fy, "*")),
-                   levels = unique(ifelse(y$complete, sub("^FY", "", y$fiscal_year), paste0(sub("^FY", "", y$fiscal_year), "*"))))
-  out$part <- factor(out$part, levels = labels)
-  out
+# Two panels side by side for a stacked fiscal-year chart:
+#   (a) Nominal (KSh Billion)   (b) % of GDP
+# with each bar's total printed on top. `long` has columns fy (factor),
+# part (factor), v (KSh) and gdp (KSh, NA when unknown); years without GDP
+# are left out of panel (b) only.
+EI_PANEL_A <- "(a) Nominal (KSh Billion)"
+EI_PANEL_B <- "(b) % of GDP"
+ei_two_panel <- function(long, pal, legend_rows = 1) {
+  a <- transform(long, panel = EI_PANEL_A, y = v / 1e9)
+  b <- transform(long[!is.na(long$gdp) & long$gdp > 0, ], panel = EI_PANEL_B, y = v / gdp * 100)
+  both <- rbind(a, b)
+  both$panel <- factor(both$panel, levels = c(EI_PANEL_A, EI_PANEL_B))
+  tot <- aggregate(y ~ fy + panel, data = both, FUN = sum)
+  tot$label <- ifelse(tot$panel == EI_PANEL_A, formatC(round(tot$y), format = "d", big.mark = ","), sprintf("%.1f", tot$y))
+  ggplot(both, aes(x = fy, y = y)) +
+    geom_col(aes(fill = part), width = 0.68) +
+    geom_text(data = tot, aes(label = label), vjust = -0.4, size = 2.15, colour = "gray15", fontface = "bold") +
+    facet_wrap(~panel, nrow = 1, scales = "free_y") +
+    scale_fill_manual(values = pal) +
+    scale_y_continuous(labels = label_comma(), expand = expansion(mult = c(0, 0.13))) +
+    labs(x = NULL, y = NULL) +
+    guides(fill = guide_legend(nrow = legend_rows)) +
+    ei_theme() +
+    theme(panel.grid.major.y = element_line(colour = "gray92"),
+          panel.grid.major.x = element_blank(),
+          strip.text = element_text(hjust = 0, face = "bold", size = 8.5, colour = "gray15"),
+          axis.text.x = element_text(size = 6.3, angle = 45, hjust = 1),
+          panel.spacing = unit(1.2, "lines"))
 }
 
-ei_stack_plot <- function(long, pal) {
-  ggplot(long, aes(x = fy, y = v / 1e9, fill = part)) +
-    geom_col(width = 0.65) +
-    scale_fill_manual(values = pal) +
-    scale_y_continuous(labels = label_comma(), expand = expansion(mult = c(0, 0.08))) +
-    labs(x = NULL, y = NULL) +
-    guides(fill = guide_legend(nrow = 1)) +
-    ei_theme() +
-    theme(panel.grid.major.y = element_line(colour = "gray92"))
+# Complete fiscal years only (the current year to date is left out), last `n`.
+ei_years_long <- function(y, keys, labels, n = 8) {
+  y <- y[y$complete %in% TRUE, ]
+  y <- tail(y[order(y$fy_start), ], n)
+  if (!nrow(y)) return(NULL)
+  vals <- y$values
+  gdp <- if (!is.null(y$gdp)) as.numeric(y$gdp) else rep(NA_real_, nrow(y))
+  out <- do.call(rbind, lapply(seq_along(keys), function(i) {
+    data.frame(fy = sub("^FY", "", y$fiscal_year), part = labels[i], v = vals[[keys[i]]] %||% 0, gdp = gdp)
+  }))
+  out$fy <- factor(out$fy, levels = sub("^FY", "", y$fiscal_year))
+  out$part <- factor(out$part, levels = labels)
+  out
 }
 
 ei_render_tax <- function() {
@@ -344,9 +358,10 @@ ei_render_tax <- function() {
   keys <- c("income_tax", "vat", "excise_duty", "import_duty", "other_tax", "grants")
   labs <- c("Income tax", "VAT", "Excise duty", "Import duty", "Other taxes", "Grants")
   long <- ei_years_long(y, keys, labs)
-  ei_heading("Tax Revenue and Grants by Fiscal Year (KSh Billion)")
-  ei_plot(ei_stack_plot(long, setNames(c(iea_green, iea_gold, iea_blue, iea_orange, iea_gray, "#BDBDBD"), labs)))
-  ei_source("Central Bank of Kenya, government finance statistics. * Year to date")
+  if (is.null(long)) return(invisible(FALSE))
+  ei_heading("Tax Revenue and Grants by Fiscal Year")
+  ei_plot(ei_two_panel(long, setNames(c(iea_green, iea_gold, iea_blue, iea_orange, iea_gray, "#BDBDBD"), labs)))
+  ei_source("Central Bank of Kenya, government finance statistics; KNBS GDP (fiscal-year average). Complete fiscal years")
   yc <- y[y$complete, ]
   yc <- yc[order(yc$fy_start), ]
   if (!nrow(yc)) return(invisible(TRUE))
@@ -373,10 +388,10 @@ ei_render_spending <- function() {
   keys <- c("domestic_interest", "foreign_interest", "wages", "pensions", "other_recurrent", "county_transfers", "development")
   labs <- c("Domestic interest", "Foreign interest", "Wages", "Pensions", "Other recurrent", "Counties", "Development")
   long <- ei_years_long(y, keys, labs)
-  ei_heading("Government Spending by Type (KSh Billion)")
-  ei_plot(ei_stack_plot(long, setNames(c(iea_red, "#EF9A9A", iea_blue, "#90CAF9", iea_gray, iea_gold, iea_green), labs)) +
-            guides(fill = guide_legend(nrow = 2)))
-  ei_source("Central Bank of Kenya, government finance statistics. * Year to date")
+  if (is.null(long)) return(invisible(FALSE))
+  ei_heading("Government Spending by Type")
+  ei_plot(ei_two_panel(long, setNames(c(iea_red, "#EF9A9A", iea_blue, "#90CAF9", iea_gray, iea_gold, iea_green), labs), legend_rows = 2))
+  ei_source("Central Bank of Kenya, government finance statistics; KNBS GDP (fiscal-year average). Complete fiscal years")
   yc <- y[y$complete, ]
   yc <- yc[order(yc$fy_start), ]
   if (!nrow(yc)) return(invisible(TRUE))

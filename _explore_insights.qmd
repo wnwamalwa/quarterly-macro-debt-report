@@ -27,7 +27,7 @@ ei_render_domestic()
 if (ei_has("/api/debt/service", "/api/debt/thresholds")) cat("\\newpage\n\n# What the Debt Costs\n\n")
 ```
 
-```{r ei-service, results='asis', fig.width=7, fig.height=3}
+```{r ei-service, results='asis', fig.width=7, fig.height=2.9}
 ei_render_service()
 ```
 
@@ -43,10 +43,10 @@ if (ei_has("/api/debt/deficit", "/api/debt/tax-revenue", "/api/debt/spending")) 
 ei_render_deficit()
 ```
 
-```{r ei-tax, results='asis', fig.width=7, fig.height=2.0}
+```{r ei-tax, results='asis', fig.width=7, fig.height=2.6}
 ei_render_tax()
 ```
 
-```{r ei-spending, results='asis', fig.width=7, fig.height=2.2}
+```{r ei-spending, results='asis', fig.width=7, fig.height=2.9}
 ei_render_spending()
 ```
