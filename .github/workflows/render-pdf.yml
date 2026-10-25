@@ -5,12 +5,14 @@ on:
     branches: [ main ]
   workflow_dispatch:
   schedule:
-    # Twice a month, on the 1st and 15th at 10:17 Nairobi time (07:17 UTC),
-    # after the CBK checks in public-debt-counter (09:02-09:47) have updated
-    # Supabase. The report covers the last COMPLETED quarter, so a new
-    # edition appears automatically on 1 Jan/Apr/Jul/Oct; the runs in
-    # between refresh its "As at" figures.
-    - cron: '17 7 1,15 * *'
+    # Every day at 05:17 Nairobi time (02:17 UTC), so the "As at" figures are
+    # today's. The report covers the last COMPLETED quarter, so a new edition
+    # (Q4 2026, Q1 2027 ...) starts automatically on 1 Jan/Apr/Jul/Oct.
+    - cron: '17 2 * * *'
+
+concurrency:
+  group: render-report
+  cancel-in-progress: false
 
 jobs:
   render-pdf:
@@ -166,12 +168,6 @@ jobs:
       # Output is tee'd so the failure step below can read it. pipefail keeps
       # quarto's own exit code rather than tee's.
       - name: Render PDF
-        env:
-          # Read debt, population and GDP straight from Supabase (the database
-          # behind kenyadebtcounter.vercel.app). Same values as the site's
-          # SUPABASE_URL and SUPABASE_ANON_KEY in Vercel.
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           set -o pipefail
           quarto render quarterly_macro_debt_report_ieakenya.qmd --to pdf 2>&1 | tee render-output.log
@@ -208,33 +204,39 @@ jobs:
             grep -iE "^!|error|undefined control|not found" "$f" | tail -8 | emit
           done
 
-      # 8. Move output PDF to docs/
-      - name: Move PDF to docs
+      # 8. Publish. The daily copy goes to the "report" branch, which always
+      # holds ONE commit (force-pushed), so daily renders don't pile up a
+      # 1 MB PDF per day in the repository's history. The website's card and
+      # any shared link use:
+      #   https://raw.githubusercontent.com/<repo>/report/quarterly_macro_debt_report_ieakenya.pdf
+      - name: Publish today's report to the report branch
         run: |
-          mkdir -p docs
-          mv quarterly_macro_debt_report_ieakenya.pdf docs/
+          set -euo pipefail
           mv latest.json docs/latest.json
+          mv quarterly_macro_debt_report_ieakenya.pdf docs/
+          out="$(mktemp -d)"
+          cp docs/quarterly_macro_debt_report_ieakenya.pdf docs/latest.json "$out/"
+          [ -f docs/kenya_public_debt_data.xlsx ] && cp docs/kenya_public_debt_data.xlsx "$out/"
+          cd "$out"
+          git init -q -b report
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add -A
+          git commit -q -m "Report as at $(TZ=Africa/Nairobi date '+%d %b %Y')"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" report:report
+          echo "Published: $(cat latest.json | tr -d '\n')" >> "$GITHUB_STEP_SUMMARY"
 
-      # 8.5 Stash local changes (required before rebase)
-      - name: Stash changes
+      # 9. Older links point at docs/ on main. Update that copy only when the
+      # edition changes (a new quarter), i.e. about four commits a year.
+      - name: Update docs/ on main when a new quarter's edition appears
         run: |
-          git stash --include-untracked
-
-      # 8.6 Pull latest main to avoid CI push conflicts
-      - name: Pull latest main
-        run: |
-          git pull --rebase origin main
-
-      # 8.7 Restore stashed changes
-      - name: Apply stashed changes
-        run: |
-          git stash pop || echo "Nothing to pop"
-
-      # 9. Commit PDF (and the Figure 1 Excel data export) back to main
-      - name: Commit PDF
-        run: |
+          set -euo pipefail
+          new_q=$(python3 -c "import json;print(json.load(open('docs/latest.json'))['quarter'])")
+          old_q=$(git show HEAD:docs/latest.json 2>/dev/null | python3 -c "import json,sys;print(json.load(sys.stdin)['quarter'])" 2>/dev/null || echo none)
+          echo "Edition on main: $old_q; today's: $new_q"
+          if [ "$new_q" = "$old_q" ]; then echo "Same edition: main left as is."; exit 0; fi
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add docs/quarterly_macro_debt_report_ieakenya.pdf docs/kenya_public_debt_data.xlsx docs/latest.json
-          git commit -m "Update latest quarterly debt report PDF and public debt data export" || echo "No changes to commit"
-          git push
+          git commit -m "New edition: $new_q"
+          for i in 1 2 3; do git pull --rebase -q origin main && git push && break; sleep 5; done

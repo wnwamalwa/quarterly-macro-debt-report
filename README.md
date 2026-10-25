@@ -18,16 +18,21 @@ The PDF is automatically generated and updated via GitHub Actions.
   - Commits the updated PDF to the `docs/` folder
 
 ## 🔁 Automation
-The report is rebuilt on the 1st and 15th of each month (10:17 Nairobi time),
-whenever changes are pushed to `main`, or when the workflow is run by hand.
-It always covers the last completed quarter, so a new edition appears on
-1 January, April, July and October.
+The report is rebuilt every day at 05:17 Nairobi time, whenever changes are
+pushed to `main`, or when the workflow is run by hand. It always covers the
+last completed quarter, so a new edition starts on 1 January, April, July
+and October.
 
-Debt, population and GDP come from Supabase, the database behind
-https://kenyadebtcounter.vercel.app (repository secrets `SUPABASE_URL` and
-`SUPABASE_ANON_KEY`); other indicators come from the Google Sheet.
-`docs/latest.json` records the edition (quarter, period, publication date)
-for the report card on the website.
+- **Today's copy** is force-pushed to the `report` branch (one commit, so the
+  repository doesn't grow by a PDF a day):
+  https://raw.githubusercontent.com/wnwamalwa/quarterly-macro-debt-report/report/quarterly_macro_debt_report_ieakenya.pdf
+- **`docs/` on `main`** is updated only when a new quarter's edition appears.
+- `latest.json` (quarter, period, publication date) feeds the report card on
+  https://kenyadebtcounter.vercel.app/explore.
+
+Debt, population and GDP come from the site's public API
+(https://kenyadebtcounter.vercel.app/api/..., five requests per render);
+other indicators come from the Google Sheet.
 
 ## 📁 Key files
 - `quarterly_macro_debt_report_ieakenya.qmd` — report source
