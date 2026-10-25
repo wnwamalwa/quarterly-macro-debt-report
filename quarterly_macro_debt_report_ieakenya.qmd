@@ -270,27 +270,48 @@ try_indicator <- function(sheet_name, indicator_label, skip = 3) {
 # ══════════════════════════════════════════════════════════════════
 
 # ── 1. DEBT STOCK ──
-# This is the one sheet read the whole report depends on, so failures here
-# get a diagnostic message instead of a raw curl/httr stack trace.
-df_total <- tryCatch(
-  read_indicator("Debt Stock", "Total Public Debt (KSh bn)"),
-  error = function(e) {
+# Quarter-end debt (KSh bn) labelled "Q1 2026" etc. Taken from the sheet's
+# "Debt Stock" tab when it exists; otherwise built from the live site's
+# debt history (the value at the end of each quarter), so the report no
+# longer depends on that tab. Only if both fail does the render stop.
+debt_quarters_from_api <- function() {
+  d <- kdc_api(DEBT_API_HISTORICAL)$data
+  if (is.null(d) || !nrow(d)) stop("the site's debt history is empty")
+  d <- d %>%
+    mutate(date = as.Date(substr(date, 1, 10))) %>%
+    filter(date <= today_eat_early) %>%
+    arrange(date) %>%
+    mutate(mo = as.integer(format(date, "%m")), yr = as.integer(format(date, "%Y"))) %>%
+    filter(mo %in% c(3L, 6L, 9L, 12L)) %>%
+    group_by(yr, mo) %>% slice_tail(n = 1) %>% ungroup() %>%
+    mutate(Quarter = sprintf("Q%d %d", mo %/% 3L, yr))
+  list(
+    total    = d %>% transmute(Quarter, Value = round(as.numeric(total) / 1e9, 2)),
+    domestic = d %>% transmute(Quarter, Value = round(as.numeric(domestic) / 1e9, 2)),
+    external = d %>% transmute(Quarter, Value = round(as.numeric(external) / 1e9, 2))
+  )
+}
+today_eat_early <- as.Date(format(Sys.time(), "%Y-%m-%d", tz = "Africa/Nairobi"))
+
+df_total <- try_indicator("Debt Stock", "Total Public Debt (KSh bn)")
+df_dom   <- try_indicator("Debt Stock", "Domestic Debt (KSh bn)")
+df_ext   <- try_indicator("Debt Stock", "External Debt (KSh bn)")
+debt_stock_source <- "sheet"
+if (is.null(df_total) || !nrow(df_total)) {
+  message("No 'Debt Stock' tab in the Google Sheet: using the site's debt history for quarter-end values.")
+  api_q <- tryCatch(debt_quarters_from_api(), error = function(e) {
     stop(
-      "\n\nFailed to read the 'Debt Stock' sheet from Google Sheets.\n",
-      "This is almost always one of:\n",
-      "  1. Missing/invalid credentials  -> place a service-account JSON at \n",
-      "     'gsheets.json' (project root) or in '.secrets/'.\n",
-      "  2. The service account lacks Viewer access to the sheet -> share\n",
-      "     the sheet with the client_email in your service-account JSON.\n",
-      "  3. No network access from this machine/runner right now.\n\n",
-      "Sheet: ", sheet_url, "\n",
+      "\n\nNo debt data: the Google Sheet has no readable 'Debt Stock' tab, and the site's\n",
+      "debt history (", KDC_API_BASE, "/api/debt/historical) could not be read either.\n",
       "Original error: ", conditionMessage(e), "\n",
       call. = FALSE
     )
-  }
-)
-df_dom   <- try_indicator("Debt Stock", "Domestic Debt (KSh bn)")
-df_ext   <- try_indicator("Debt Stock", "External Debt (KSh bn)")
+  })
+  df_total <- api_q$total
+  df_dom   <- api_q$domestic
+  df_ext   <- api_q$external
+  debt_stock_source <- "api"
+}
 
 # ── 2. GDP ──
 df_gdp   <- try_indicator("GDP", "GDP (KSh bn)")
@@ -2121,7 +2142,7 @@ ggplot(wair_df, aes(x = Series, y = Rate, fill = Series)) +
 # its own table is carried here as a single line, computed from the same
 # live quarter-end row that drives Figures 1 to 3.
 cat(sprintf(
-  "\n\\vspace{-1.5em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: National Treasury, MTDS %s. Weighted average interest rate by debt class.}\n\\end{flushleft}\n\\vspace{0.2em}\n",
+  "\n\\vspace{-0.4em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: National Treasury, MTDS %s. Weighted average interest rate by debt class.}\n\\end{flushleft}\n\\vspace{0.2em}\n",
   mtds_year
 ))
 
