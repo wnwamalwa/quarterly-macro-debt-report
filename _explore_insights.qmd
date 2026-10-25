@@ -50,3 +50,12 @@ ei_render_tax()
 ```{r ei-spending, results='asis', fig.width=7, fig.height=2.9}
 ei_render_spending()
 ```
+
+```{r ei-excel}
+# Add the Composition, Cost of Debt and Budget sheets to the Excel download
+# (written earlier in the report as docs/<name>), same style as Debt Stock.
+if (exists("debt_data_xlsx_write_ok") && isTRUE(debt_data_xlsx_write_ok)) {
+  tryCatch(ei_excel_extend(file.path("docs", debt_data_xlsx_name)),
+           error = function(e) message("Could not add the extra Excel sheets: ", conditionMessage(e)))
+}
+```

@@ -56,8 +56,10 @@ ei_heading <- function(title) {
   cat(sprintf("\n### Figure %d. %s\n\n", ei_fig_n, title))
 }
 ei_source <- function(text) {
-  cat(sprintf("\n\\vspace{-0.5em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: %s.}\n\\end{flushleft}\n\\vspace{-0.3em}\n",
-              iea_tex_escape(text)))
+  link <- if (exists("debt_data_xlsx_ok") && isTRUE(debt_data_xlsx_ok))
+    sprintf(" (\\href{%s}{Download Excel})", debt_data_download_url) else ""
+  cat(sprintf("\n\\vspace{-0.5em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: %s.%s}\n\\end{flushleft}\n\\vspace{-0.3em}\n",
+              iea_tex_escape(text), link))
 }
 ei_text <- function(...) cat(paste0(..., "\n\n"))
 ei_plot <- function(p) print(p)
@@ -218,10 +220,12 @@ EI_INDICATORS <- data.frame(
   stringsAsFactors = FALSE
 )
 
-ei_render_thresholds <- function() {
+# The six indicators' latest values (official present value for debt stocks
+# when published), as on the site's Chart 13. NULL when unavailable.
+ei_threshold_rows <- function() {
   d <- ei_get("/api/debt/thresholds")
   y <- d$years
-  if (is.null(y) || !is.data.frame(y) || !nrow(y)) return(invisible(FALSE))
+  if (is.null(y) || !is.data.frame(y) || !nrow(y)) return(NULL)
   y <- y[order(y$fy_start), ]
   pv <- d$pv
   pv <- if (is.data.frame(pv) && nrow(pv)) pv else NULL
@@ -231,7 +235,7 @@ ei_render_thresholds <- function() {
     ok <- which(!is.na(y[[ind$key]]))
     if (!length(ok)) return(NULL)
     last <- y[max(ok), ]
-    v <- last[[ind$key]]; basis <- "face value"; period <- last$fiscal_year
+    v <- last[[ind$key]]; basis <- "face value"; period <- last$fiscal_year; face <- v; face_period <- last$fiscal_year
     if (ind$stock && !is.null(pv)) {   # stock ratios: the official present value, newest published
       p <- pv[pv$key == ind$key, ]
       if (nrow(p)) {
@@ -240,10 +244,15 @@ ei_render_thresholds <- function() {
       }
     }
     data.frame(Indicator = ind$name, Limit = ind$limit, Value = v, Period = period, Basis = basis, By = ind$by,
-               stringsAsFactors = FALSE)
+               Face = face, FacePeriod = face_period, stringsAsFactors = FALSE)
   })
   t <- do.call(rbind, rows[!vapply(rows, is.null, logical(1))])
-  if (is.null(t) || !nrow(t)) return(invisible(FALSE))
+  if (is.null(t) || !nrow(t)) NULL else t
+}
+
+ei_render_thresholds <- function() {
+  t <- ei_threshold_rows()
+  if (is.null(t)) return(invisible(FALSE))
   above <- t$Value > t$Limit
   tbl <- data.frame(
     Indicator = t$Indicator,
@@ -416,5 +425,220 @@ ei_render_spending <- function() {
     if (interest > last$values$wages) "more than" else "less than", ei_amt(last$values$wages),
     if (first$fy_start < last$fy_start) sprintf(" In %s it was %s.", ei_fy(first$fiscal_year), ei_pct(int0 / first$total * 100)) else ""
   ))
+  invisible(TRUE)
+}
+
+# ══════════════════════════════════════════════════════════════════
+# EXCEL: the rest of the report's data, grouped into a few sheets
+# ══════════════════════════════════════════════════════════════════
+# The main report writes docs/<xlsx> with Snapshot, Debt Stock and Notes &
+# Sources. This adds, in the same style (blue group headers over column
+# headers), one sheet per later section:
+#
+#   Composition   external debt by currency | domestic debt by instrument
+#   Cost of Debt  debt service by fiscal year | debt limits (live) |
+#                 Treasury DSA (MTDS) | weighted average interest rates
+#   Budget        per fiscal year: tax revenue and grants | spending by
+#                 type | deficit
+#
+# Related tables sit side by side on one sheet, separated by a blank
+# column. A table whose data couldn't be read is left out.
+
+EI_XL <- list(
+  hdr   = function() openxlsx::createStyle(textDecoration = "bold", halign = "center", valign = "center",
+                                           border = "TopBottomLeftRight", fgFill = "#1F3864",
+                                           fontColour = "#FFFFFF", wrapText = TRUE),
+  title = function() openxlsx::createStyle(fontSize = 11, textDecoration = "bold", fgFill = "#D9E1F2"),
+  note  = function() openxlsx::createStyle(fontSize = 9, fontColour = "#595959", wrapText = FALSE)
+)
+
+# Write one table at (row, col): a title row, a group-header row (merged
+# across each group) and the column headers, then the data. `groups` is a
+# named integer vector: group label -> number of columns (first column, e.g.
+# the date, takes an empty group). Returns the next free column.
+ei_xl_table <- function(wb, sheet, df, col, title, groups, labels, note = NULL, formats = NULL, row = 1) {
+  n <- ncol(df)
+  openxlsx::writeData(wb, sheet, title, startRow = row, startCol = col)
+  openxlsx::mergeCells(wb, sheet, cols = col:(col + n - 1), rows = row)
+  openxlsx::addStyle(wb, sheet, EI_XL$title(), rows = row, cols = col:(col + n - 1), gridExpand = TRUE)
+  g <- rep("", n)
+  start <- 1
+  for (gi in seq_along(groups)) {
+    k <- groups[[gi]]
+    g[start] <- trimws(names(groups)[gi])
+    if (k > 1) openxlsx::mergeCells(wb, sheet, cols = (col + start - 1):(col + start + k - 2), rows = row + 1)
+    start <- start + k
+  }
+  openxlsx::writeData(wb, sheet, matrix(g, nrow = 1), startRow = row + 1, startCol = col, colNames = FALSE)
+  openxlsx::writeData(wb, sheet, matrix(labels, nrow = 1), startRow = row + 2, startCol = col, colNames = FALSE)
+  openxlsx::addStyle(wb, sheet, EI_XL$hdr(), rows = (row + 1):(row + 2), cols = col:(col + n - 1), gridExpand = TRUE)
+  openxlsx::writeData(wb, sheet, df, startRow = row + 3, startCol = col, colNames = FALSE)
+  if (!is.null(formats)) for (j in names(formats)) {
+    openxlsx::addStyle(wb, sheet, openxlsx::createStyle(numFmt = formats[[j]]),
+                       rows = (row + 3):(row + 2 + max(1, nrow(df))), cols = col + match(j, names(df)) - 1,
+                       gridExpand = TRUE, stack = TRUE)
+  }
+  if (!is.null(note)) {
+    openxlsx::writeData(wb, sheet, note, startRow = row + 4 + nrow(df), startCol = col)
+    openxlsx::addStyle(wb, sheet, EI_XL$note(), rows = row + 4 + nrow(df), cols = col)
+  }
+  openxlsx::setColWidths(wb, sheet, cols = col:(col + n - 1), widths = pmax(11, nchar(labels) + 2))
+  col + n + 1
+}
+
+ei_fy_label <- function(s) sub("^FY", "", s)
+
+ei_excel_extend <- function(path) {
+  if (!requireNamespace("openxlsx", quietly = TRUE) || !file.exists(path)) return(invisible(FALSE))
+  wb <- openxlsx::loadWorkbook(path)
+  added <- character(0)
+  B <- 1e9
+
+  # ---- Composition -----------------------------------------------------
+  comp_long <- function(d) {
+    sn <- d$snapshots
+    if (is.null(sn) || !length(sn)) return(NULL)
+    if (is.data.frame(sn)) sn <- lapply(seq_len(nrow(sn)), function(i) list(asAt = sn$asAt[i], rows = sn$rows[[i]]))
+    out <- do.call(rbind, lapply(rev(sn), function(s) {
+      r <- as.data.frame(s$rows)
+      if (!nrow(r)) return(NULL)
+      r <- r[order(-r$amount), ]
+      data.frame(asAt = as.Date(substr(s$asAt, 1, 10)), label = r$label,
+                 amount = round(r$amount / B, 2), share = round(r$amount / sum(r$amount) * 100, 1))
+    }))
+    out
+  }
+  cur <- comp_long(ei_get("/api/debt/external-currency"))
+  ins <- comp_long(ei_get("/api/debt/domestic-instrument"))
+  if (!is.null(cur) || !is.null(ins)) {
+    sh <- "Composition"; openxlsx::addWorksheet(wb, sh); col <- 1
+    fmt <- list(asAt = "yyyy-mm-dd", amount = "#,##0.00", share = "0.0")
+    if (!is.null(cur)) col <- ei_xl_table(wb, sh, cur, col, "External debt by currency",
+      c(" " = 1, "External debt" = 3), c("As at", "Currency", "KSh billion", "Share (%)"),
+      note = "Source: National Treasury, via the Controller of Budget's full-year Budget Implementation Review Reports.", formats = fmt)
+    if (!is.null(ins)) col <- ei_xl_table(wb, sh, ins, col, "Domestic debt by instrument",
+      c(" " = 1, "Domestic debt" = 3), c("As at", "Instrument", "KSh billion", "Share (%)"),
+      note = "Source: National Treasury, via the Controller of Budget's Budget Implementation Review Reports.", formats = fmt)
+    openxlsx::freezePane(wb, sh, firstActiveRow = 4)
+    added <- c(added, sh)
+  }
+
+  # ---- Cost of Debt ----------------------------------------------------
+  sv <- ei_get("/api/debt/service")$years
+  th <- ei_threshold_rows()
+  have_cost <- (is.data.frame(sv) && nrow(sv)) || !is.null(th) || exists("dsa_indicators")
+  if (have_cost) {
+    sh <- "Cost of Debt"; openxlsx::addWorksheet(wb, sh); col <- 1
+    if (is.data.frame(sv) && nrow(sv)) {
+      sv <- sv[order(sv$fy_start, decreasing = TRUE), ]
+      gdp <- if (!is.null(sv$gdp)) as.numeric(sv$gdp) else NA
+      rev <- if (!is.null(sv$revenue)) as.numeric(sv$revenue) else NA
+      df <- data.frame(fy = ei_fy_label(sv$fiscal_year),
+                       ep = round(sv$external_principal / B, 2), ei = round(sv$external_interest / B, 2),
+                       dp = round(sv$domestic_principal / B, 2), di = round(sv$domestic_interest / B, 2),
+                       tot = round(sv$total / B, 2),
+                       gdp = round(sv$total / gdp * 100, 2), rev = round(sv$total / rev * 100, 1))
+      col <- ei_xl_table(wb, sh, df, col, "Public debt service by fiscal year",
+        c(" " = 1, "External (KSh billion)" = 2, "Domestic (KSh billion)" = 2, "Total" = 3),
+        c("Fiscal year", "Principal", "Interest", "Principal", "Interest", "KSh billion", "% of GDP", "% of revenue"),
+        note = "Source: Controller of Budget, full-year National Government Budget Implementation Review Reports; KNBS GDP (fiscal-year average).",
+        formats = list(ep = "#,##0.00", ei = "#,##0.00", dp = "#,##0.00", di = "#,##0.00", tot = "#,##0.00", gdp = "0.00", rev = "0.0"))
+    }
+    if (!is.null(th)) {
+      df <- data.frame(ind = th$Indicator, lim = th$Limit, val = round(th$Value, 1), per = ei_fy_label(th$Period),
+                       basis = th$Basis, face = round(th$Face, 1), fper = ei_fy_label(th$FacePeriod),
+                       st = ifelse(th$Value > th$Limit, "Above", "Below"), by = th$By)
+      col <- ei_xl_table(wb, sh, df, col, "Debt indicators against their limits (live)",
+        c(" " = 1, "Limit" = 1, "Latest (as judged)" = 3, "Face value" = 2, " " = 2),
+        c("Indicator", "Limit (%)", "Value (%)", "Year", "Basis", "Value (%)", "Year", "Status", "Limit set by"),
+        note = "Debt stocks are judged on the newest official present value (Treasury Annual Public Debt Report or IMF-World Bank DSA). Source: CBK, Controller of Budget, KNBS, National Treasury.")
+    }
+    if (exists("dsa_indicators")) {
+      df <- data.frame(ind = dsa_indicators$Indicator, lim = dsa_indicators$Threshold, val = dsa_indicators$Latest,
+                       ex = round(dsa_indicators$Latest - dsa_indicators$Threshold, 1))
+      nx <- ei_xl_table(wb, sh, df, col, sprintf("Treasury DSA, MTDS %s", mtds_year),
+        c(" " = 1, "Per cent" = 3), c("Indicator", "Threshold", "Latest", "Excess (pts)"),
+        note = sprintf("Source: National Treasury, Medium Term Debt Strategy (MTDS), %s.", mtds_year))
+      if (exists("wair_domestic")) {
+        ei_xl_table(wb, sh, data.frame(cls = c("Domestic", "External"), r = c(wair_domestic, wair_external)), col,
+          "Weighted average interest rate", c(" " = 1, "Per cent" = 1), c("Debt class", "Rate"),
+          note = sprintf("Source: National Treasury, MTDS %s.", mtds_year), row = nrow(df) + 7)
+      }
+      col <- nx
+    }
+    openxlsx::freezePane(wb, sh, firstActiveRow = 4)
+    added <- c(added, sh)
+  }
+
+  # ---- Budget ----------------------------------------------------------
+  tx <- ei_get("/api/debt/tax-revenue")$years
+  sp <- ei_get("/api/debt/spending")$years
+  dm <- ei_get("/api/debt/deficit")$months
+  if ((is.data.frame(tx) && nrow(tx)) || (is.data.frame(sp) && nrow(sp))) {
+    sh <- "Budget"; openxlsx::addWorksheet(wb, sh)
+    fys <- sort(unique(c(if (is.data.frame(tx)) tx$fiscal_year, if (is.data.frame(sp)) sp$fiscal_year)), decreasing = TRUE)
+    out <- data.frame(fy = ei_fy_label(fys))
+    pick <- function(y, fy, k) { i <- match(fy, y$fiscal_year); if (is.na(i)) NA else y$values[[k]][i] / B }
+    gdp_of <- function(y, fy) { i <- match(fy, y$fiscal_year); if (is.na(i) || is.null(y$gdp)) NA else as.numeric(y$gdp[i]) / B }
+    tk <- c("income_tax", "vat", "excise_duty", "import_duty", "other_tax")
+    sk <- c("domestic_interest", "foreign_interest", "wages", "pensions", "other_recurrent", "county_transfers", "development")
+    gdp <- vapply(fys, function(f) { g <- if (is.data.frame(tx)) gdp_of(tx, f) else NA; if (is.na(g) && is.data.frame(sp)) gdp_of(sp, f) else g }, numeric(1))
+    complete <- vapply(fys, function(f) { i <- if (is.data.frame(tx)) match(f, tx$fiscal_year) else NA; if (!is.na(i)) isTRUE(tx$complete[i]) else { j <- match(f, sp$fiscal_year); isTRUE(sp$complete[j]) } }, logical(1))
+    out$status <- ifelse(complete, "Full year", "Year to date")
+    for (k in tk) out[[k]] <- if (is.data.frame(tx)) vapply(fys, function(f) pick(tx, f, k), numeric(1)) else NA
+    out$tax_total <- rowSums(out[, tk], na.rm = FALSE)
+    out$grants <- if (is.data.frame(tx)) vapply(fys, function(f) pick(tx, f, "grants"), numeric(1)) else NA
+    out$tax_gdp <- out$tax_total / gdp * 100
+    for (k in sk) out[[k]] <- if (is.data.frame(sp)) vapply(fys, function(f) pick(sp, f, k), numeric(1)) else NA
+    out$sp_total <- rowSums(out[, sk], na.rm = FALSE)
+    out$sp_gdp <- out$sp_total / gdp * 100
+    out$int_share <- (out$domestic_interest + out$foreign_interest) / out$sp_total * 100
+    # Fiscal-year deficit: CBK's 12 months to June, all revenue and grants.
+    out$def <- NA_real_; out$def_gdp <- NA_real_
+    if (is.data.frame(dm) && nrow(dm)) {
+      j <- dm[dm$kind == "actual" & substr(dm$month, 6, 7) == "06", ]
+      for (i in seq_len(nrow(j))) {
+        fy <- sprintf("FY%d/%02d", as.integer(substr(j$month[i], 1, 4)) - 1L, as.integer(substr(j$month[i], 3, 4)))
+        r <- match(ei_fy_label(fy), out$fy)
+        if (!is.na(r)) {
+          out$def[r] <- (j$deficit[i] - j$nontax[i]) / B
+          if (!is.na(j$gdp[i]) && j$gdp[i] > 0) out$def_gdp[r] <- (j$deficit[i] - j$nontax[i]) / j$gdp[i] * 100
+        }
+      }
+    }
+    num <- setdiff(names(out), c("fy", "status"))
+    out[num] <- lapply(out[num], function(x) round(x, 1))
+    labels <- c("Fiscal year", "Figures",
+                "Income tax", "VAT", "Excise duty", "Import duty", "Other taxes", "Total tax", "Grants", "Tax, % of GDP",
+                "Domestic interest", "Foreign interest", "Wages and salaries", "Pensions", "Other recurrent",
+                "County transfers", "Development", "Total spending", "Spending, % of GDP", "Interest, % of spending",
+                "KSh billion", "% of GDP")
+    fm <- setNames(as.list(rep("#,##0.0", length(num))), num)
+    ei_xl_table(wb, sh, out, 1, "Revenue, spending and the deficit by fiscal year (KSh billion unless shown)",
+      c(" " = 2, "Tax revenue and grants" = 8, "Spending by type" = 10, "Deficit (all revenue)" = 2),
+      labels,
+      note = "Source: Central Bank of Kenya, Revenue and Expenditure (government finance statistics); KNBS GDP (fiscal-year average). Deficit = spending minus all revenue (taxes, non-tax revenue) and grants, CBK's 12 months to June.",
+      formats = fm)
+    openxlsx::freezePane(wb, sh, firstActiveRow = 4, firstActiveCol = 3)
+    added <- c(added, sh)
+  }
+
+  if (!length(added)) return(invisible(FALSE))
+
+  # Notes and Sources stays last; list the new sheets there.
+  if ("Notes and Sources" %in% names(wb)) {
+    used <- tryCatch(nrow(openxlsx::read.xlsx(wb, "Notes and Sources", colNames = FALSE, skipEmptyRows = FALSE)), error = function(e) 30)
+    r <- used + 2
+    lines <- c("Other sheets",
+               if ("Composition" %in% added) "Composition: external debt by currency and domestic debt by instrument, every date the Controller of Budget reports give (KSh billion, share of the total).",
+               if ("Cost of Debt" %in% added) "Cost of Debt: debt service by fiscal year (principal and interest, external and domestic); Kenya's debt indicators against their limits (live); the Treasury's own DSA and interest rates (MTDS).",
+               if ("Budget" %in% added) "Budget: tax revenue by type and grants, spending by type and the deficit, by fiscal year (the latest year may be the year to date; see the Figures column).",
+               "All of these are the same data as the charts at https://kenyadebtcounter.vercel.app/explore.")
+    openxlsx::writeData(wb, "Notes and Sources", lines, startRow = r, startCol = 1)
+    openxlsx::addStyle(wb, "Notes and Sources", openxlsx::createStyle(fontSize = 11, textDecoration = "bold", fgFill = "#D9E1F2"), rows = r, cols = 1)
+    sheets <- names(wb)
+    openxlsx::worksheetOrder(wb) <- c(setdiff(seq_along(sheets), match("Notes and Sources", sheets)), match("Notes and Sources", sheets))
+  }
+  openxlsx::saveWorkbook(wb, path, overwrite = TRUE)
   invisible(TRUE)
 }
