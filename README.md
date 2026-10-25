@@ -24,8 +24,9 @@ last completed quarter, so a new edition starts on 1 January, April, July
 and October.
 
 - **Today's copy** is force-pushed to the `report` branch (one commit, so the
-  repository doesn't grow by a PDF a day):
-  https://raw.githubusercontent.com/wnwamalwa/quarterly-macro-debt-report/report/quarterly_macro_debt_report_ieakenya.pdf
+  repository doesn't grow by a PDF a day) under readable names (quarter, not day, so links last all quarter), e.g.
+  `IEA-Kenya_Quarterly-Debt-Report_Q3-2026.pdf` and
+  `IEA-Kenya_Public-Debt-Data_Q3-2026.xlsx`; `latest.json` names them.
 - **`docs/` on `main`** is updated only when a new quarter's edition appears.
 - `latest.json` (quarter, period, publication date) feeds the report card on
   https://kenyadebtcounter.vercel.app/explore.

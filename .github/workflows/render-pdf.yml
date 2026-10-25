@@ -207,16 +207,21 @@ jobs:
       # 8. Publish. The daily copy goes to the "report" branch, which always
       # holds ONE commit (force-pushed), so daily renders don't pile up a
       # 1 MB PDF per day in the repository's history. The website's card and
-      # any shared link use:
-      #   https://raw.githubusercontent.com/<repo>/report/quarterly_macro_debt_report_ieakenya.pdf
+      # any shared link use the file named in latest.json, e.g.
+      #   https://raw.githubusercontent.com/<repo>/report/IEA-Kenya_Quarterly-Debt-Report_Q3-2026.pdf
       - name: Publish today's report to the report branch
         run: |
           set -euo pipefail
           mv latest.json docs/latest.json
           mv quarterly_macro_debt_report_ieakenya.pdf docs/
           out="$(mktemp -d)"
-          cp docs/quarterly_macro_debt_report_ieakenya.pdf docs/latest.json "$out/"
-          [ -f docs/kenya_public_debt_data.xlsx ] && cp docs/kenya_public_debt_data.xlsx "$out/"
+          # Readable names (set in the .qmd and recorded in latest.json), e.g.
+          #   IEA-Kenya_Quarterly-Debt-Report_Q3-2026.pdf
+          pdf_file=$(python3 -c "import json;print(json.load(open('docs/latest.json'))['pdf_file'])")
+          xlsx_file=$(python3 -c "import json;print(json.load(open('docs/latest.json'))['xlsx_file'])")
+          cp docs/latest.json "$out/"
+          cp docs/quarterly_macro_debt_report_ieakenya.pdf "$out/$pdf_file"
+          [ -f docs/kenya_public_debt_data.xlsx ] && cp docs/kenya_public_debt_data.xlsx "$out/$xlsx_file"
           cd "$out"
           git init -q -b report
           git config user.name "github-actions"

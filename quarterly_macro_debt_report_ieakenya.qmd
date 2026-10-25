@@ -368,6 +368,17 @@ get_reporting_quarter <- function(ref_date = today_eat) {
 
 reporting_period <- get_reporting_quarter()
 
+# File names readers see when they download. The workflow publishes today's
+# copies under these names on the "report" branch (latest.json tells the
+# website which names to link to). They carry the quarter but not the day,
+# so a shared link keeps working all quarter while the content updates daily:
+#   IEA-Kenya_Quarterly-Debt-Report_Q3-2026.pdf
+#   IEA-Kenya_Public-Debt-Data_Q3-2026.xlsx
+q_stub           <- sprintf("%s-%d", reporting_period$quarter, reporting_period$year)
+report_pdf_name  <- sprintf("IEA-Kenya_Quarterly-Debt-Report_%s.pdf", q_stub)
+report_xlsx_name <- sprintf("IEA-Kenya_Public-Debt-Data_%s.xlsx", q_stub)
+REPORT_RAW_BASE  <- "https://raw.githubusercontent.com/wnwamalwa/quarterly-macro-debt-report/report/"
+
 # ══════════════════════════════════════════════════════════════════
 # COMBINE DEBT DATA
 # ══════════════════════════════════════════════════════════════════
@@ -554,10 +565,14 @@ cat(sprintf(
   reporting_period$quarter, reporting_period$range,
   format(today_eat, "%d %B %Y")
 ))
+# Title shown by PDF viewers and search engines instead of the file name.
+cat(sprintf("\\hypersetup{pdftitle={Quarterly Macroeconomic Debt Report, %s (%s)}, pdfauthor={Institute of Economic Affairs (IEA) Kenya}, pdfsubject={Kenya public debt, as at %s}}\n",
+            reporting_period$label, reporting_period$range, format(today_eat, "%d %B %Y")))
 # Edition details for the website's report card (moved to docs/ by the workflow).
 jsonlite::write_json(
   list(quarter = reporting_period$label, period = reporting_period$range,
-       published = format(today_eat, "%Y-%m-%d")),
+       published = format(today_eat, "%Y-%m-%d"),
+       pdf_file = report_pdf_name, xlsx_file = report_xlsx_name),
   "latest.json", auto_unbox = TRUE, pretty = TRUE
 )
 ```
@@ -833,8 +848,8 @@ key_metrics_fig1_endlabels <- key_metrics_fig1_long %>%
 # points. Since the real file isn't written until later, readiness here
 # just checks that openxlsx is installed rather than attempting a write.
 debt_data_xlsx_name    <- "kenya_public_debt_data.xlsx"
-debt_data_base_url     <- "https://wnwamalwa.github.io/quarterly-macro-debt-report/"
-debt_data_download_url <- paste0(debt_data_base_url, debt_data_xlsx_name)
+# The link points at today's copy on the "report" branch, under its dated name.
+debt_data_download_url <- paste0(REPORT_RAW_BASE, report_xlsx_name)
 debt_data_xlsx_ok      <- requireNamespace("openxlsx", quietly = TRUE)
 if (!debt_data_xlsx_ok) {
   message("openxlsx not installed -- Download Excel links will be omitted from this render.")
