@@ -74,6 +74,17 @@ ei_theme <- function() {
           plot.margin = margin(4, 8, 2, 4))
 }
 
+# The site's chart colours (kenyadebtcounter.vercel.app/explore), so a
+# figure here looks like the chart it comes from.
+EI_SITE <- list(
+  currency = "#eb6834", instrument = "#2a78d6",
+  service = c("External principal" = "#eb6834", "External interest" = "#f5b08f",
+              "Domestic principal" = "#2a78d6", "Domestic interest" = "#96bcea"),
+  deficit = "#c2410c",
+  tax = c("#2a78d6", "#1baf7a", "#eb6834", "#8b5cf6", "#94a3b8", "#db2777"),
+  spend = c("#b91c1c", "#f87171", "#2a78d6", "#8b5cf6", "#94a3b8", "#eb6834", "#1baf7a")
+)
+
 # Shared palette for stacked categories (IEA greens and golds, then neutrals).
 ei_pal <- c(iea_green, iea_gold, iea_blue, iea_orange, "#6D4C41", iea_light, iea_gray, "#9E9E9E")
 
@@ -121,7 +132,7 @@ ei_render_currency <- function() {
   b <- ei_breakdown(ei_get("/api/debt/external-currency"))
   if (is.null(b)) return(invisible(FALSE))
   ei_heading(sprintf("External Debt by Currency, %s", ei_date(b$asAt)))
-  ei_plot(ei_bar_share(b$rows, iea_gold))
+  ei_plot(ei_bar_share(b$rows, EI_SITE$currency))
   ei_source("National Treasury, via the Controller of Budget's full-year Budget Implementation Review Report")
   top <- b$rows[1, ]
   second <- if (nrow(b$rows) > 1) b$rows[2, ] else NULL
@@ -138,7 +149,7 @@ ei_render_domestic <- function() {
   b <- ei_breakdown(ei_get("/api/debt/domestic-instrument"))
   if (is.null(b)) return(invisible(FALSE))
   ei_heading(sprintf("Domestic Debt by Instrument, %s", ei_date(b$asAt)))
-  ei_plot(ei_bar_share(b$rows, iea_green))
+  ei_plot(ei_bar_share(b$rows, EI_SITE$instrument))
   ei_source("National Treasury, via the Controller of Budget's Budget Implementation Review Reports")
   bonds <- b$rows[grepl("bond", b$rows$label, ignore.case = TRUE), ]
   bills <- b$rows[grepl("bill", b$rows$label, ignore.case = TRUE), ]
@@ -175,8 +186,7 @@ ei_render_service <- function() {
   long$part <- factor(long$part, levels = c("External principal", "External interest", "Domestic principal", "Domestic interest"))
   long$fy <- factor(sub("^FY", "", long$fy), levels = sub("^FY", "", y$fiscal_year))
   ei_heading("Public Debt Service by Fiscal Year")
-  ei_plot(ei_two_panel(long, c("External principal" = "#E6CF6B", "External interest" = iea_gold,
-                               "Domestic principal" = iea_light, "Domestic interest" = iea_green)))
+  ei_plot(ei_two_panel(long, EI_SITE$service))
   ei_source("Controller of Budget, full-year National Government Budget Implementation Review Reports; KNBS GDP (fiscal-year average)")
   last <- y[nrow(y), ]
   prev <- if (nrow(y) > 1) y[nrow(y) - 1, ] else NULL
@@ -280,12 +290,12 @@ ei_render_deficit <- function() {
   ei_heading("Budget Deficit over the Previous 12 Months (% of GDP)")
   ei_plot(
     ggplot(m, aes(x = date, y = pct)) +
-      geom_hline(yintercept = 3, colour = iea_red, linetype = "dashed", linewidth = 0.4) +
-      annotate("text", x = min(m$date), y = 3, label = "EAC ceiling 3%", hjust = 0, vjust = -0.5, size = 2.6, colour = iea_red) +
-      geom_line(colour = iea_blue, linewidth = 0.8) +
-      geom_point(data = last, colour = iea_blue, size = 1.8) +
+      geom_hline(yintercept = 3, colour = "#0f172a", linetype = "dashed", linewidth = 0.4) +
+      annotate("text", x = min(m$date), y = 3, label = "EAC ceiling 3%", hjust = 0, vjust = -0.5, size = 2.6, colour = "#0f172a") +
+      geom_line(colour = EI_SITE$deficit, linewidth = 0.8) +
+      geom_point(data = last, colour = EI_SITE$deficit, size = 1.8) +
       annotate("text", x = last$date, y = last$pct, label = sprintf("%.1f%%", last$pct),
-               hjust = -0.2, size = 3, fontface = "bold", colour = iea_blue) +
+               hjust = -0.2, size = 3, fontface = "bold", colour = EI_SITE$deficit) +
       scale_x_date(date_breaks = "1 year", date_labels = "%Y", expand = expansion(mult = c(0.01, 0.06))) +
       scale_y_continuous(labels = function(x) paste0(x, "%"), limits = c(0, NA), expand = expansion(mult = c(0, 0.1))) +
       labs(x = NULL, y = NULL) +
@@ -360,7 +370,7 @@ ei_render_tax <- function() {
   long <- ei_years_long(y, keys, labs)
   if (is.null(long)) return(invisible(FALSE))
   ei_heading("Tax Revenue and Grants by Fiscal Year")
-  ei_plot(ei_two_panel(long, setNames(c(iea_green, iea_gold, iea_blue, iea_orange, iea_gray, "#BDBDBD"), labs)))
+  ei_plot(ei_two_panel(long, setNames(EI_SITE$tax, labs)))
   ei_source("Central Bank of Kenya, government finance statistics; KNBS GDP (fiscal-year average). Complete fiscal years")
   yc <- y[y$complete, ]
   yc <- yc[order(yc$fy_start), ]
@@ -390,7 +400,7 @@ ei_render_spending <- function() {
   long <- ei_years_long(y, keys, labs)
   if (is.null(long)) return(invisible(FALSE))
   ei_heading("Government Spending by Type")
-  ei_plot(ei_two_panel(long, setNames(c(iea_red, "#EF9A9A", iea_blue, "#90CAF9", iea_gray, iea_gold, iea_green), labs), legend_rows = 2))
+  ei_plot(ei_two_panel(long, setNames(EI_SITE$spend, labs), legend_rows = 2))
   ei_source("Central Bank of Kenya, government finance statistics; KNBS GDP (fiscal-year average). Complete fiscal years")
   yc <- y[y$complete, ]
   yc <- yc[order(yc$fy_start), ]
