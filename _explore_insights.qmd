@@ -1,0 +1,52 @@
+<!-- Insights from the Explore page of kenyadebtcounter.vercel.app.
+     Included by quarterly_macro_debt_report_ieakenya.qmd; code in explore_insights.R.
+     Each figure is left out on its own if its data can't be fetched. -->
+
+```{r ei-setup}
+source("explore_insights.R", local = knitr::knit_global())
+```
+
+```{r ei-note, results='asis'}
+# Said once, under the first section heading, instead of under every chart.
+ei_note <- "\\noindent{\\small\\color{gray} Figures in this part are drawn from the live data behind the Explore page of the Kenya Debt Counter, \\href{https://kenyadebtcounter.vercel.app/explore}{kenyadebtcounter.vercel.app/explore}, where each chart can be explored and downloaded.}\n\n"
+```
+
+```{r ei-h1, results='asis'}
+if (ei_has("/api/debt/external-currency", "/api/debt/domestic-instrument")) cat("\\newpage\n\n# What the Debt Is Made Of\n\n", ei_note)
+```
+
+```{r ei-currency, results='asis', fig.width=7, fig.height=2.5}
+ei_render_currency()
+```
+
+```{r ei-domestic, results='asis', fig.width=7, fig.height=2.5}
+ei_render_domestic()
+```
+
+```{r ei-h2, results='asis'}
+if (ei_has("/api/debt/service", "/api/debt/thresholds")) cat("\\newpage\n\n# What the Debt Costs\n\n")
+```
+
+```{r ei-service, results='asis', fig.width=7, fig.height=3}
+ei_render_service()
+```
+
+```{r ei-thresholds, results='asis'}
+ei_render_thresholds()
+```
+
+```{r ei-h3, results='asis'}
+if (ei_has("/api/debt/deficit", "/api/debt/tax-revenue", "/api/debt/spending")) cat("\\newpage\n\n# How the Debt Fits in the Budget\n\n")
+```
+
+```{r ei-deficit, results='asis', fig.width=7, fig.height=2.1}
+ei_render_deficit()
+```
+
+```{r ei-tax, results='asis', fig.width=7, fig.height=2.2}
+ei_render_tax()
+```
+
+```{r ei-spending, results='asis', fig.width=7, fig.height=2.2}
+ei_render_spending()
+```

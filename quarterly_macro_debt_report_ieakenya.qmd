@@ -2052,7 +2052,7 @@ cat(iea_fullwidth_table(
   caption = sprintf("Debt sustainability indicators against thresholds, %s", mtds_year)
 ))
 cat(sprintf(
-  "\n\\vspace{-0.9em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: National Treasury, Medium Term Debt Strategy (MTDS), %s.}\n\\end{flushleft}\n\\vspace{0.2em}\n",
+  "\n\\vspace{0.1em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: National Treasury, Medium Term Debt Strategy (MTDS), %s.}\n\\end{flushleft}\n\\vspace{0.2em}\n",
   mtds_year
 ))
 ```
@@ -2410,6 +2410,8 @@ if (has_composition) {
 
 <!-- ═══════════════════════════════════════════════════════════ -->
 
+{{< include _explore_insights.qmd >}}
+
 \newpage
 
 # Data Sources
@@ -2418,9 +2420,10 @@ This report draws on publicly available data published by:
 
 - **Central Bank of Kenya (CBK)** — monthly and quarterly public debt statistics, exchange rates
 - **The National Treasury** — budget execution reports, fiscal outturns, cost of debt
+- **Office of the Controller of Budget (OCOB)** — National Government Budget Implementation Review Reports: debt service, external debt by currency, domestic debt by instrument
 - **Kenya National Bureau of Statistics (KNBS)** — GDP, national accounts, population estimates
 
-Data is ingested via Google Sheets, processed in R, and rendered using Quarto with XeLaTeX. The report is regenerated automatically through GitHub Actions whenever the underlying data or analysis is updated.
+Data is ingested via Google Sheets and the Kenya Debt Counter's public API (kenyadebtcounter.vercel.app), processed in R, and rendered using Quarto with XeLaTeX. The report is regenerated automatically through GitHub Actions whenever the underlying data or analysis is updated.
 
 **Definitions:**
 
