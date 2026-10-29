@@ -1885,6 +1885,7 @@ debt_data_xlsx_write_ok <- tryCatch({
   r <- r + 1
 
   write_line("Methodology note", section_style)
+  write_line("Monthly figures are CBK's published end-of-month public debt. The latest row ('as at' the report date) is the Kenya Debt Counter's live estimate: domestic debt from the latest CBK Weekly Bulletin, external debt in US dollars converted at CBK's exchange rate on the day, carried forward at the recent pace of borrowing (checked against the last 12 months' budget deficit). Methodology and track record: https://kenyadebtcounter.vercel.app/methodology")
   write_line("Where the published Total and the Domestic/External split do not sum exactly (a fraction of a percent, typically an FX-valuation timing difference on external debt), Domestic is scaled onto the published Total (Domestic' = Domestic x Total / (Domestic+External)) and External is taken as the remainder (External' = Total - Domestic'). This keeps the published Total exact and preserves the source's own domestic:external ratio to the last decimal.")
   if (exists("debt_pc_gap_pct_max") && is.finite(debt_pc_gap_pct_max)) {
     write_line(sprintf("Largest such gap closed in the Per Capita series: %.2f%%.", debt_pc_gap_pct_max))
@@ -2439,12 +2440,14 @@ if (has_composition) {
 
 This report draws on publicly available data published by:
 
-- **Central Bank of Kenya (CBK)** — monthly and quarterly public debt statistics, exchange rates
+- **Central Bank of Kenya (CBK)** — monthly and quarterly public debt statistics, the Weekly Bulletin (latest domestic debt and external debt in US dollars), daily exchange rates, government revenue and expenditure
 - **The National Treasury** — budget execution reports, fiscal outturns, cost of debt
 - **Office of the Controller of Budget (OCOB)** — National Government Budget Implementation Review Reports: debt service, external debt by currency, domestic debt by instrument
 - **Kenya National Bureau of Statistics (KNBS)** — GDP, national accounts, population estimates
 
 Data is ingested via Google Sheets and the Kenya Debt Counter's public API (kenyadebtcounter.vercel.app), processed in R, and rendered using Quarto with XeLaTeX. The report is regenerated automatically through GitHub Actions whenever the underlying data or analysis is updated.
+
+**How the latest debt figure is estimated:** official debt figures are published with a lag, so the most recent figure in this report ("as at" the report date) is the Kenya Debt Counter's live estimate. Domestic debt starts from the latest CBK Weekly Bulletin figure; external debt is the bulletin's US-dollar figure converted at CBK's exchange rate on the day; both are carried forward at the recent pace of borrowing, checked against the budget deficit of the last 12 months. Earlier months use CBK's published end-of-month figures. Full methodology and the counter's track record against official figures: kenyadebtcounter.vercel.app/methodology.
 
 **Definitions:**
 
