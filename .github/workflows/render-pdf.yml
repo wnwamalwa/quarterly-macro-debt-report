@@ -22,6 +22,8 @@ env:
 jobs:
   render-pdf:
     runs-on: ubuntu-24.04  # pinned: ubuntu-latest moves to Ubuntu 26
+    # A stuck step should fail in minutes, not hold the runner for GitHub's 6-hour limit.
+    timeout-minutes: 45
 
     permissions:
       contents: write
@@ -73,10 +75,23 @@ jobs:
             ~/.local/share/TinyTeX
           key: tinytex-${{ runner.os }}-v4
 
-      # 3c. Install TinyTeX safely (skips if cached)
+      # 3c. Install TinyTeX only when the cache missed. `quarto install tinytex`
+      # on an existing install checks GitHub for a newer release and, when one
+      # exists, waits for a yes/no answer that never comes: from 1 Nov 2026
+      # that hung the job until GitHub cancelled it after 6 hours. Unauthenticated
+      # checks can also be refused (403), so the token is passed, the prompt is
+      # turned off and the step is capped at 10 minutes.
       - name: Install TinyTeX
+        timeout-minutes: 10
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          quarto install tinytex
+          if command -v tlmgr >/dev/null 2>&1 || ls "$HOME"/.TinyTeX/bin/*/tlmgr "$HOME"/.local/share/TinyTeX/bin/*/tlmgr >/dev/null 2>&1; then
+            echo "TinyTeX already installed (cache hit): skipping install."
+          else
+            quarto install tinytex --no-prompt
+          fi
 
       # 3d. Make sure the LaTeX packages this report needs are present.
       # tlmgr is LOCATED rather than assumed -- hardcoding a bin path is what
