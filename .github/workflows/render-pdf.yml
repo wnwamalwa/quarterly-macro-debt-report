@@ -110,11 +110,24 @@ jobs:
           fi
           echo "tlmgr resolved to: ${TLMGR:-<not found>}"
           if [ -n "$TLMGR" ]; then
-            "$TLMGR" update --self
-            "$TLMGR" install \
-              tabularx enumitem booktabs colortbl xcolor caption \
-              titlesec multicol fancyhdr lastpage float setspace \
-              xltabular ltablex
+            # A random CTAN mirror can lag a day or two behind a fresh TinyTeX,
+            # and tlmgr then refuses to install anything ("remote database ...
+            # seems to be older than the local installation"), which broke the
+            # render on 3 Nov 2026. Try well-kept mirrors in turn and keep the
+            # first that works, so the render's own auto-install uses it too.
+            PKGS="tabularx enumitem booktabs colortbl xcolor caption titlesec multicol fancyhdr lastpage float setspace xltabular ltablex threeparttable"
+            for repo in \
+              https://mirrors.mit.edu/CTAN/systems/texlive/tlnet \
+              https://ctan.math.illinois.edu/systems/texlive/tlnet \
+              https://ctan.mirror.rafal.ca/systems/texlive/tlnet \
+              https://mirror.ctan.org/systems/texlive/tlnet; do
+              echo "Trying TeX Live mirror: $repo"
+              "$TLMGR" option repository "$repo"
+              if "$TLMGR" update --self && "$TLMGR" install $PKGS; then
+                echo "LaTeX packages installed from $repo"
+                break
+              fi
+            done
           fi
           exit 0
 
