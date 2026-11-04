@@ -139,7 +139,7 @@ ei_render_currency <- function() {
   top <- b$rows[1, ]
   second <- if (nrow(b$rows) > 1) b$rows[2, ] else NULL
   ei_text(sprintf(
-    "At %s, external public debt stood at \\textbf{%s}. \\textbf{%s} accounts for \\textbf{%s}%s. Because this debt is owed in foreign currency, every 1%% fall in the shilling adds about \\textbf{%s} to it in shillings, without any new borrowing.",
+    "At %s, external public debt stood at \\textbf{%s}. \\textbf{%s} accounts for \\textbf{%s}%s. Because this debt is owed in foreign currency, every 1%% fall in the shilling adds about \\textbf{%s} to it in shillings, without any new borrowing. These are the Controller of Budget's figures, so they can differ slightly from CBK's monthly series used in Table 1.",
     ei_date(b$asAt), ei_amt(b$total), iea_tex_escape(top$label), ei_pct(top$share),
     if (!is.null(second)) sprintf(", followed by %s at %s", iea_tex_escape(second$label), ei_pct(second$share)) else "",
     ei_bn(b$total * 0.01)
@@ -199,7 +199,9 @@ ei_render_service <- function() {
     if (!is.null(prev)) sprintf(" (%s %s than in %s)", ei_pct(abs(last$total / prev$total - 1) * 100),
                                  if (last$total >= prev$total) "more" else "less", ei_fy(prev$fiscal_year)) else "",
     ei_amt(last$interest),
-    if (!is.na(rev_share)) sprintf(" That is \\textbf{%s} of the year's revenue: %s of every KSh 100 collected.", ei_pct(rev_share),
+    if (!is.na(rev_share)) sprintf(" That is \\textbf{%s} of the year's %srevenue: %s of every KSh 100 collected.", ei_pct(rev_share),
+                                   if (!is.null(last$revenue_basis) && !is.na(last$revenue_basis) && nzchar(last$revenue_basis))
+                                     paste0(last$revenue_basis, " ") else "",
                                    sprintf("KSh %.0f", rev_share)) else "",
     sprintf(" Domestic debt took \\textbf{%s} of the total.", ei_pct(last$domestic / last$total * 100))
   ))
@@ -268,7 +270,7 @@ ei_render_thresholds <- function() {
   cat("\n\\vspace{0.2em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} PV = present value, the basis the limits are set on; Face = face value. Limits: IMF--World Bank Debt Sustainability Framework thresholds for a medium debt-carrying capacity country; Public Finance Management Act anchor (55\\% of GDP, present value); East African Community convergence ceiling (deficit). Source: CBK, Controller of Budget, KNBS, National Treasury (present-value ratios); \\href{https://kenyadebtcounter.vercel.app/explore\\#chart-thresholds}{kenyadebtcounter.vercel.app}.}\n\\end{flushleft}\n\\vspace{0.2em}\n")
   n <- sum(above)
   ei_text(sprintf(
-    "On the latest figures Kenya is above the limit on \\textbf{%d of %d} indicators%s. The table above updates with the live data each day, whereas Table 4 reports the Treasury's own %s assessment.",
+    "On the latest figures Kenya is above the limit on \\textbf{%d of %d} indicators%s. The table above updates with the live data each day, whereas Table 4 reports the Treasury's own %s assessment; where the two differ (for example external debt to exports), it is because they come from different sources and years, so each value should be read with its Year column.",
     n, nrow(t),
     if (n) paste0(": ", paste(t$Indicator[above], collapse = "; ")) else "",
     mtds_year
@@ -416,11 +418,20 @@ ei_render_spending <- function() {
   if (!nrow(yc)) return(invisible(TRUE))
   last <- yc[nrow(yc), ]
   interest <- last$values$domestic_interest + last$values$foreign_interest
+  # Figure 7 takes interest from the Controller of Budget, this figure from
+  # CBK's government finance statistics; they differ, so name the other one.
+  cob_note <- tryCatch({
+    sv <- ei_get("/api/debt/service")$years
+    hit <- sv[sv$fiscal_year == last$fiscal_year, ]
+    if (nrow(hit) && is.finite(hit$interest[1]) && abs(hit$interest[1] / interest - 1) > 0.02)
+      sprintf(" (CBK figures; the Controller of Budget, used in Figure 7, puts interest for the year at %s)", ei_amt(hit$interest[1]))
+    else ""
+  }, error = function(e) "")
   first <- yc[max(1, nrow(yc) - 9), ]
   int0 <- first$values$domestic_interest + first$values$foreign_interest
   ei_text(sprintf(
-    "Interest on the public debt took \\textbf{%s} of government spending in %s (\\textbf{%s}), %s development spending (%s) and %s wages (%s).%s",
-    ei_pct(interest / last$total * 100), ei_fy(last$fiscal_year), ei_amt(interest),
+    "Interest on the public debt took \\textbf{%s} of government spending in %s (\\textbf{%s}%s), %s development spending (%s) and %s wages (%s).%s",
+    ei_pct(interest / last$total * 100), ei_fy(last$fiscal_year), ei_amt(interest), cob_note,
     if (interest > last$values$development) "more than" else "less than", ei_amt(last$values$development),
     if (interest > last$values$wages) "more than" else "less than", ei_amt(last$values$wages),
     if (first$fy_start < last$fy_start) sprintf(" In %s it was %s.", ei_fy(first$fiscal_year), ei_pct(int0 / first$total * 100)) else ""

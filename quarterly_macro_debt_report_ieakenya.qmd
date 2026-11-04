@@ -190,6 +190,7 @@ sheet_url <- "https://docs.google.com/spreadsheets/d/11Y_EoYqFJOTTubbBCQkh1gV3kb
 
 DEBT_API_HISTORICAL <- "https://api.kenyadebtcounter.or.ke/api/debt/historical"
 DEBT_API_CURRENT    <- "https://api.kenyadebtcounter.or.ke/api/debt/current"
+DEBT_API_GROWTH_DAY <- "https://api.kenyadebtcounter.or.ke/api/debt/growth?unit=day"
 
 # ══════════════════════════════════════════════════════════════════
 # DATA SOURCE: the live site's public API (kenyadebtcounter.vercel.app)
@@ -547,6 +548,25 @@ years_back_date <- function(d, n) {
            error = function(e) d - n * 365.25)
 }
 
+# ── Value at the end of a month ──────────────────────────────────────────────
+# The debt series dates each month's figure to the 1st of that month, but the
+# figure is the stock at the END of the month (the 1 Feb 2026 row is CBK's
+# KSh 12.842 tn for end-February; the 1 Jun 2026 row matches the KSh 7.32 tn
+# of domestic debt the Controller of Budget reports at 30 June). Interpolating
+# to 30 June therefore blended in July's figure and overstated "Q2 Jun" by
+# about KSh 0.1 tn. So a quarter-end column takes that month's own (latest)
+# row, and only interpolates when the month has no row at all.
+month_end_value <- function(df, target_date, cols) {
+  ym  <- format(target_date, "%Y-%m")
+  hit <- df[format(df$Quarter, "%Y-%m") == ym, ]
+  if (nrow(hit) == 0) return(value_at_date(df, target_date, cols))
+  hit <- hit[which.max(hit$Quarter), ]
+  out <- lapply(cols, function(cl) as.numeric(hit[[cl]]))
+  names(out) <- cols
+  out$Quarter <- target_date
+  as.data.frame(out)
+}
+
 value_at_date <- function(df, target_date, cols) {
   d   <- df[order(df$Quarter), ]
   out <- lapply(cols, function(cl) {
@@ -856,7 +876,7 @@ key_metrics_fig1_endlabels <- key_metrics_fig1_long %>%
   group_by(Series) %>%
   filter(Quarter == max(Quarter)) %>%
   ungroup() %>%
-  mutate(label = sprintf("KSh %05.2f T %s", Debt / 1000, Series))
+  mutate(label = sprintf("KSh %.2f T %s", Debt / 1000, Series))
 
 # Figures 1, 2 and 3 now share ONE Excel download instead of three separate
 # files (kenya_public_debt_data.xlsx: a Snapshot sheet, the full
@@ -941,10 +961,10 @@ ggplot(key_metrics_fig1_long, aes(x = Quarter, y = Debt, colour = Series, group 
   key_metrics_year_layer +
   # Debt is stored in KSh Billions; y-axis ticks step every KSh 2 Trillion
   # (i.e. every 2,000 in the underlying Billions units) and are labelled
-  # "KSh 00 T" .. "KSh 14 T" (etc.), matching the end-of-line "T" labels.
+  # "KSh 0 T" .. "KSh 14 T" (etc.), matching the end-of-line "T" labels.
   scale_y_continuous(
     breaks = seq(0, key_metrics_fig1_y_top_break, by = 2000),
-    labels = function(x) sprintf("KSh %02d T", as.integer(round(x / 1000))),
+    labels = function(x) sprintf("KSh %d T", as.integer(round(x / 1000))),
     expand = expansion(mult = c(0.02, 0.14))
   ) +
   labs(x = NULL, y = NULL, colour = NULL) +
@@ -1030,31 +1050,43 @@ ratio_10y_str <- sprintf("%.1f", asat_row$Total / row_10y$Total)
 asat_domestic_str <- fmt_pct_str(asat_row$Domestic / asat_row$Total * 100)
 asat_external_str <- fmt_pct_str(asat_row$External / asat_row$Total * 100)
 
-# --- Daily accumulation rate: the slope of the most recent segment of the
-# merged trend -- i.e. exactly the rate the live "current" point was
-# interpolated at, so it reflects the latest known pace of accumulation. -
-trend_sorted       <- key_metrics_trend_df[order(key_metrics_trend_df$Quarter), ]
-prev_row_for_rate  <- trend_sorted[nrow(trend_sorted) - 1, ]
-day_span           <- as.numeric(asat_row$Quarter - prev_row_for_rate$Quarter)
-daily_rate_str <- if (is.finite(day_span) && day_span > 0) {
-  sprintf("%.2f", (asat_row$Total - prev_row_for_rate$Total) / day_span)
-} else {
-  "n/a"
-}
+# --- Daily accumulation rate ---------------------------------------------
+# Taken from the counter's own growth rate (/api/debt/growth?unit=day), the
+# same pace the live figure ticks up at on the site. It used to be the slope
+# of the last segment of the merged trend (last historical point -> live
+# "current" point); when the live figure is revised but the historical
+# series is not, that segment is mostly the revision, not borrowing (on
+# 4 Nov 2026 it gave KSh 38.65 bn a day against the counter's 3.50 bn).
+# Fallback: the average daily change over the last twelve months of the
+# historical series alone, which a one-off revision cannot distort.
+daily_rate_bn <- tryCatch({
+  g <- kdc_api(DEBT_API_GROWTH_DAY)
+  v <- as.numeric(g$data$total) / 1e9
+  if (!isTRUE(g$success) || !is.finite(v) || v <= 0) stop("no usable growth rate")
+  v
+}, error = function(e) {
+  message("Daily growth rate unavailable (", conditionMessage(e), ") -- using the 12-month average.")
+  h <- if (!is.null(api_debt_hist)) api_debt_hist else key_metrics_trend_df
+  h <- h[order(h$Quarter), ]
+  end <- h[nrow(h), ]
+  start <- value_at_date(h, years_back_date(end$Quarter, 1), "Total")
+  (end$Total - start$Total) / as.numeric(end$Quarter - start$Quarter)
+})
+daily_rate_str <- if (is.finite(daily_rate_bn) && daily_rate_bn > 0) sprintf("%.2f", daily_rate_bn) else "n/a"
 
 # --- Close-of-quarter points: reporting_period (title page's quarter) vs.
 # the quarter immediately before it. --------------------------------------
 q_num       <- match(reporting_period$quarter, q_labels_all)
 q_end_month <- q_end_months_all[q_num]
 q_end_date  <- last_day_of_month(reporting_period$year, q_end_month)
-q_end_row   <- value_at_date(key_metrics_trend_df, q_end_date, c("Total", "Domestic", "External"))
+q_end_row   <- month_end_value(key_metrics_trend_df, q_end_date, c("Total", "Domestic", "External"))
 
 prev_q_num <- q_num - 1L
 prev_year  <- reporting_period$year
 if (prev_q_num == 0L) { prev_q_num <- 4L; prev_year <- reporting_period$year - 1L }
 prev_q_end_month <- q_end_months_all[prev_q_num]
 prev_q_end_date  <- last_day_of_month(prev_year, prev_q_end_month)
-prev_q_end_row   <- value_at_date(key_metrics_trend_df, prev_q_end_date, c("Total", "Domestic", "External"))
+prev_q_end_row   <- month_end_value(key_metrics_trend_df, prev_q_end_date, c("Total", "Domestic", "External"))
 
 q_domestic_str      <- fmt_pct_str(q_end_row$Domestic / q_end_row$Total * 100)
 q_external_str      <- fmt_pct_str(q_end_row$External / q_end_row$Total * 100)
@@ -1372,12 +1404,11 @@ debt_pc_summary_ok <- tryCatch({
     paste0("KSh ", format(round(x), big.mark = ","))
   }
 
-  # Interpolated to the exact quarter-end date rather than snapped back to
-  # the closest earlier monthly point -- see value_at_date(). "Q1 Mar 2026"
-  # is the stock as at 31 March 2026, not as at 1 March.
+  # The quarter-end month's own data point (its end-of-month stock) -- see
+  # month_end_value(). "Q1 Mar 2026" is the stock as at 31 March 2026.
   debt_pc_cols       <- c("Total", "Domestic", "External")
-  debt_pc_prev_q_row <- value_at_date(debt_pc_df, prev_q_end_date, debt_pc_cols)
-  debt_pc_q_row      <- value_at_date(debt_pc_df, q_end_date,      debt_pc_cols)
+  debt_pc_prev_q_row <- month_end_value(debt_pc_df, prev_q_end_date, debt_pc_cols)
+  debt_pc_q_row      <- month_end_value(debt_pc_df, q_end_date,      debt_pc_cols)
   debt_pc_asat_row   <- debt_pc_df[which.max(debt_pc_df$Quarter), ]
 
   # Round for display in a way that cannot break the addition: Total and
@@ -1405,19 +1436,17 @@ debt_pc_summary_ok <- tryCatch({
   debt_pc_latest <- debt_pc_df[which.max(debt_pc_df$Quarter), ]
 
   debt_pc_10y_row <- closest_on_or_before(debt_pc_df, years_back_date(debt_pc_latest$Quarter, 10))
-  debt_pc_1y_row  <- closest_on_or_before(debt_pc_df, years_back_date(debt_pc_latest$Quarter, 1))
+  # Exactly one year back, interpolated, so the annual addition below and the
+  # domestic/external split in the bullets use the same window and add up.
+  debt_pc_1y_row  <- value_at_date(debt_pc_df, years_back_date(debt_pc_latest$Quarter, 1),
+                                   c("Total", "Domestic", "External"))
 
   debt_pc_10y_mult <- sprintf("%.1f", debt_pc_latest$Total / debt_pc_10y_row$Total)
 
   # Annual pace of accumulation = the actual change in per-person debt over
   # the last twelve months of the series, divided by the exact length of
   # that window in years (so a slightly short/long window still annualises).
-  debt_pc_yr_span <- as.numeric(debt_pc_latest$Quarter - debt_pc_1y_row$Quarter) / 365.25
-  debt_pc_annual_add <- if (is.finite(debt_pc_yr_span) && debt_pc_yr_span > 0) {
-    (debt_pc_latest$Total - debt_pc_1y_row$Total) / debt_pc_yr_span
-  } else {
-    NA_real_
-  }
+  debt_pc_annual_add <- debt_pc_latest$Total - debt_pc_1y_row$Total
 
   debt_pc_narrative <- sprintf(
     "\n**%s**, the public debt is estimated at **%s per person**, and is **%s times** what it was a decade ago without correcting for inflation. As per the trend, approximately **%s** of new debt is added per person annually. The composition of debt per person has evolved as follows:\n\n",
@@ -1452,12 +1481,11 @@ cat(iea_fullwidth_table(debt_pc_summary_table, bold_rows = 3,
 # The forward reference to that section is therefore textual only.
 illustrative_household <- 4   # KNBS puts the average household near four
 
-pc_household <- debt_pc_latest$Total * illustrative_household
+pc_household <- round(debt_pc_latest$Total) * illustrative_household
 pc_daily     <- debt_pc_annual_add / 365.25
 pc_daily_hh  <- pc_daily * illustrative_household
 
-pc_1y_row <- value_at_date(debt_pc_df, years_back_date(debt_pc_latest$Quarter, 1),
-                           c("Total", "Domestic", "External"))
+pc_1y_row <- debt_pc_1y_row   # same window as the annual addition above
 pc_dom_1y <- debt_pc_latest$Domestic - pc_1y_row$Domestic
 pc_ext_1y <- debt_pc_latest$External - pc_1y_row$External
 
@@ -1920,8 +1948,8 @@ debt_gdp_summary_ok <- tryCatch({
   }
 
   gdp_cols            <- c("Total", "Domestic", "External")
-  debt_gdp_prev_q_row <- value_at_date(debt_gdp_df, prev_q_end_date, gdp_cols)
-  debt_gdp_q_row      <- value_at_date(debt_gdp_df, q_end_date,      gdp_cols)
+  debt_gdp_prev_q_row <- month_end_value(debt_gdp_df, prev_q_end_date, gdp_cols)
+  debt_gdp_q_row      <- month_end_value(debt_gdp_df, q_end_date,      gdp_cols)
   debt_gdp_asat_row   <- debt_gdp_df[which.max(debt_gdp_df$Quarter), ]
 
   # Round in a way that cannot break the addition: Total and Domestic are
@@ -2016,20 +2044,20 @@ frag_grow <- if (gdp3_ok) sprintf(
 cat("\\begin{itemize}[itemsep=5pt, parsep=0pt, topsep=2pt, leftmargin=1.4em]\n")
 
 cat(sprintf(
-  "\\item \\textbf{The ratio is high and still climbing.} At \\textbf{%s of GDP} -- roughly \\textbf{%.0f months} of national output -- up \\textbf{%.1f percentage points} over the decade. Figure 3 shows a sustained net increase in the debt stock; the sharp decline in early 2024 is on account of the bullet repayment of the Eurobond.\n",
+  "\\item \\textbf{The ratio is high and still climbing.} At \\textbf{%s of GDP} -- roughly \\textbf{%.0f months} of national output -- up \\textbf{%.1f percentage points} over the decade. Figure 3 shows a sustained net increase in the debt stock; the sharp fall in early 2024 came mainly from the shilling's strong recovery against the dollar, which cut the shilling value of external debt (the 2024 Eurobond was largely refinanced through a buyback rather than repaid outright).\n",
   pct(debt_gdp_latest$Total), gdp3_months, debt_gdp_10y_chg
 ))
 
 cat(sprintf(
-  "\\item \\textbf{Domestic debt is rising faster, and the stock is not the whole claim.} Domestic borrowing equals \\textbf{%s of GDP} against \\textbf{%s} external. Pending bills of \\textbf{KSh %.1f trillion}%s sit outside this ratio -- and servicing already costs \\textbf{KSh %.1f trillion}, \\textbf{%s of it domestic}, the costlier class.\n",
+  "\\item \\textbf{Domestic debt is rising faster, and the stock is not the whole claim.} Domestic borrowing equals \\textbf{%s of GDP} against \\textbf{%s} external. Pending bills of \\textbf{KSh %.1f trillion}%s sit outside this ratio -- and the FY %s budget sets aside \\textbf{KSh %.1f trillion} for debt service, \\textbf{%s of it domestic}, the costlier class.\n",
   pct(debt_gdp_latest$Domestic), pct(debt_gdp_latest$External),
   pending_bills_trillion, frag_pend,
-  service_total_trillion, pct(service_domestic_share)
+  budget_year, service_total_trillion, pct(service_domestic_share)
 ))
 
 cat(sprintf(
-  "\\item \\textbf{Growth is too slow to outrun the servicing bill.} Real growth of about \\textbf{%s} cannot generate the revenue to cover \\textbf{KSh %.1f trillion} of debt service%s. While borrowing outpaces output, servicing absorbs a rising share of revenue and crowds out development spending.\n",
-  pct(real_growth), service_total_trillion, frag_grow
+  "\\item \\textbf{Growth is too slow to outrun the servicing bill.} Real growth of about \\textbf{%s} cannot generate the revenue to cover the \\textbf{KSh %.1f trillion} of debt service budgeted for FY %s%s. While borrowing outpaces output, servicing absorbs a rising share of revenue and crowds out development spending.\n",
+  pct(real_growth), service_total_trillion, budget_year, frag_grow
 ))
 
 cat("\\end{itemize}\n\n")
@@ -2163,15 +2191,15 @@ dsa_stock_dom <- tryCatch({
 
 if (is.finite(dsa_stock_dom)) {
   cat(sprintf(
-    "\\item \\textbf{The consequence is the repayment burden.} Domestic debt is \\textbf{%.1f\\%%} of the stock at the close of %s but absorbs \\textbf{%.1f\\%%} of the KSh %.1f trillion debt service budget -- a gap of \\textbf{%.1f percentage points} between what is owed and what must be paid this year. External debt is the mirror image, at \\textbf{%.1f\\%%} of the stock but \\textbf{%.1f\\%%} of repayments.\n",
-    dsa_stock_dom, col2_label, service_domestic_share, service_total_trillion,
+    "\\item \\textbf{The consequence is the repayment burden.} Domestic debt is \\textbf{%.1f\\%%} of the stock at the close of %s but absorbs \\textbf{%.1f\\%%} of the KSh %.1f trillion debt service budget for FY %s -- a gap of \\textbf{%.1f percentage points} between what is owed and what must be paid this year. External debt is the mirror image, at \\textbf{%.1f\\%%} of the stock but \\textbf{%.1f\\%%} of repayments.\n",
+    dsa_stock_dom, col2_label, service_domestic_share, service_total_trillion, budget_year,
     service_domestic_share - dsa_stock_dom,
     100 - dsa_stock_dom, service_external_share
   ))
 } else {
   cat(sprintf(
-    "\\item \\textbf{The consequence is the repayment burden.} Domestic debt absorbs \\textbf{%.1f\\%%} of the KSh %.1f trillion debt service budget against \\textbf{%.1f\\%%} for external debt.\n",
-    service_domestic_share, service_total_trillion, service_external_share
+    "\\item \\textbf{The consequence is the repayment burden.} Domestic debt absorbs \\textbf{%.1f\\%%} of the KSh %.1f trillion debt service budget for FY %s against \\textbf{%.1f\\%%} for external debt.\n",
+    service_domestic_share, service_total_trillion, budget_year, service_external_share
   ))
 }
 
