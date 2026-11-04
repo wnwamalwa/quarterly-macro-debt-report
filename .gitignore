@@ -70,3 +70,6 @@ secrets/
 # Timestamped local safety backups (never commit)
 ############################
 *.backup-*
+
+# Per-figure data written by each render (published to the report branch)
+docs/data/

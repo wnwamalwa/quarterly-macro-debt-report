@@ -255,6 +255,8 @@ jobs:
           cp docs/latest.json "$out/"
           cp docs/quarterly_macro_debt_report_ieakenya.pdf "$out/$pdf_file"
           [ -f docs/kenya_public_debt_data.xlsx ] && cp docs/kenya_public_debt_data.xlsx "$out/$xlsx_file"
+          # Each figure's data, linked from the PDF as "View data" (GitHub shows a CSV as a table).
+          if [ -d docs/data ]; then mkdir -p "$out/data" && cp docs/data/*.csv "$out/data/" 2>/dev/null || true; fi
           cd "$out"
           git init -q -b report
           git config user.name "github-actions"

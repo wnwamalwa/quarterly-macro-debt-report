@@ -55,9 +55,10 @@ ei_heading <- function(title) {
   ei_fig_n <<- ei_fig_n + 1L
   cat(sprintf("\n### Figure %d. %s\n\n", ei_fig_n, title))
 }
-ei_source <- function(text) {
-  link <- if (exists("debt_data_xlsx_ok") && isTRUE(debt_data_xlsx_ok))
-    sprintf(" (\\href{%s}{Download Excel})", debt_data_download_url) else ""
+# `data` and `slug`: the figure's own data, linked as "View data" (see
+# view_data_link() in the report); without them the line has no link.
+ei_source <- function(text, data = NULL, slug = NULL) {
+  link <- if (!is.null(data) && !is.null(slug) && exists("view_data_link")) view_data_link(data, slug) else ""
   cat(sprintf("\n\\vspace{-0.5em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: %s.%s}\n\\end{flushleft}\n\\vspace{-0.3em}\n",
               iea_tex_escape(text), link))
 }
@@ -135,7 +136,8 @@ ei_render_currency <- function() {
   if (is.null(b)) return(invisible(FALSE))
   ei_heading(sprintf("External Debt by Currency, %s", ei_date(b$asAt)))
   ei_plot(ei_bar_share(b$rows, EI_SITE$currency))
-  ei_source("National Treasury, via the Controller of Budget's full-year Budget Implementation Review Report")
+  ei_source("National Treasury, via the Controller of Budget's full-year Budget Implementation Review Report",
+            ei_share_rows(b), "figure-05-external-debt-by-currency")
   top <- b$rows[1, ]
   second <- if (nrow(b$rows) > 1) b$rows[2, ] else NULL
   ei_text(sprintf(
@@ -152,7 +154,8 @@ ei_render_domestic <- function() {
   if (is.null(b)) return(invisible(FALSE))
   ei_heading(sprintf("Domestic Debt by Instrument, %s", ei_date(b$asAt)))
   ei_plot(ei_bar_share(b$rows, EI_SITE$instrument))
-  ei_source("National Treasury, via the Controller of Budget's Budget Implementation Review Reports")
+  ei_source("National Treasury, via the Controller of Budget's Budget Implementation Review Reports",
+            ei_share_rows(b), "figure-06-domestic-debt-by-instrument")
   bonds <- b$rows[grepl("bond", b$rows$label, ignore.case = TRUE), ]
   bills <- b$rows[grepl("bill", b$rows$label, ignore.case = TRUE), ]
   change <- ""
@@ -189,7 +192,8 @@ ei_render_service <- function() {
   long$fy <- factor(sub("^FY", "", long$fy), levels = sub("^FY", "", y$fiscal_year))
   ei_heading("Public Debt Service by Fiscal Year")
   ei_plot(ei_two_panel(long, EI_SITE$service))
-  ei_source("National Treasury, Annual Public Debt Reports; KNBS GDP (fiscal-year average)")
+  ei_source("National Treasury, Annual Public Debt Reports; KNBS GDP (fiscal-year average)",
+            ei_wide(long), "figure-07-debt-service")
   last <- y[nrow(y), ]
   prev <- if (nrow(y) > 1) y[nrow(y) - 1, ] else NULL
   rev_share <- if (!is.null(last$revenue) && !is.na(last$revenue) && last$revenue > 0) last$total / last$revenue * 100 else NA
@@ -326,7 +330,10 @@ ei_render_deficit <- function() {
       ei_theme() +
       theme(panel.grid.major.y = element_line(colour = "gray92"))
   )
-  ei_source("Central Bank of Kenya, government finance statistics; KNBS GDP")
+  ei_source("Central Bank of Kenya, government finance statistics; KNBS GDP",
+            data.frame(month = m$month, deficit_12m_ksh_bn = round(m$deficit / 1e9, 2),
+                       gdp_ksh_bn = round(m$gdp / 1e9, 2), deficit_pct_gdp = round(m$pct, 2)),
+            "figure-08-budget-deficit")
   tg <- d$targets
   fy_start <- if (as.integer(substr(last$month, 6, 7)) >= 7) as.integer(substr(last$month, 1, 4)) else as.integer(substr(last$month, 1, 4)) - 1L
   target <- if (is.data.frame(tg)) tg$pct_gdp[tg$fy_start == fy_start] else numeric(0)
@@ -370,6 +377,22 @@ ei_two_panel <- function(long, pal, legend_rows = 1) {
           panel.spacing = unit(1.2, "lines"))
 }
 
+# The two-panel charts' data as one row per fiscal year: KSh bn per part, and GDP.
+ei_wide <- function(long) {
+  w <- reshape(long[, c("fy", "part", "v")], idvar = "fy", timevar = "part", direction = "wide")
+  names(w) <- c("fiscal_year", paste0(gsub("[^a-z0-9]+", "_", tolower(sub("^v\\.", "", names(w)[-1]))), "_ksh_bn"))
+  w[-1] <- lapply(w[-1], function(x) round(as.numeric(x) / 1e9, 2))
+  g <- unique(long[, c("fy", "gdp")])
+  w$gdp_ksh_bn <- round(as.numeric(g$gdp[match(w$fiscal_year, g$fy)]) / 1e9, 2)
+  w$fiscal_year <- paste0("FY", w$fiscal_year)
+  rownames(w) <- NULL
+  w
+}
+ei_share_rows <- function(b) {
+  data.frame(as_at = substr(b$asAt, 1, 10), item = b$rows$label, ksh_bn = round(b$rows$amount / 1e9, 2),
+             share_pct = round(b$rows$share, 2))
+}
+
 # Complete fiscal years only (the current year to date is left out), last `n`.
 ei_years_long <- function(y, keys, labels, n = 8) {
   y <- y[y$complete %in% TRUE, ]
@@ -395,7 +418,8 @@ ei_render_tax <- function() {
   if (is.null(long)) return(invisible(FALSE))
   ei_heading("Tax Revenue and Grants by Fiscal Year")
   ei_plot(ei_two_panel(long, setNames(EI_SITE$tax, labs)))
-  ei_source("Central Bank of Kenya, government finance statistics; KNBS GDP (fiscal-year average). Complete fiscal years")
+  ei_source("Central Bank of Kenya, government finance statistics; KNBS GDP (fiscal-year average). Complete fiscal years",
+            ei_wide(long), "figure-09-tax-revenue")
   yc <- y[y$complete, ]
   yc <- yc[order(yc$fy_start), ]
   if (!nrow(yc)) return(invisible(TRUE))
@@ -425,7 +449,8 @@ ei_render_spending <- function() {
   if (is.null(long)) return(invisible(FALSE))
   ei_heading("Government Spending by Type")
   ei_plot(ei_two_panel(long, setNames(EI_SITE$spend, labs), legend_rows = 2))
-  ei_source("Central Bank of Kenya, government finance statistics; KNBS GDP (fiscal-year average). Complete fiscal years")
+  ei_source("Central Bank of Kenya, government finance statistics; KNBS GDP (fiscal-year average). Complete fiscal years",
+            ei_wide(long), "figure-10-government-spending")
   yc <- y[y$complete, ]
   yc <- yc[order(yc$fy_start), ]
   if (!nrow(yc)) return(invisible(TRUE))
