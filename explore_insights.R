@@ -231,6 +231,18 @@ ei_threshold_rows <- function() {
   y <- y[order(y$fy_start), ]
   pv <- d$pv
   pv <- if (is.data.frame(pv) && nrow(pv)) pv else NULL
+  # Limits in force by period (the sheet's dsa_thresholds tab): Kenya's
+  # IMF-World Bank limits were higher before the April 2021 assessment.
+  lims <- d$limits
+  lims <- if (is.data.frame(lims) && nrow(lims)) lims else NULL
+  limit_for <- function(key, period, fallback) {
+    if (is.null(lims)) return(fallback)
+    y <- suppressWarnings(as.integer(sub(".*?(\\d{4}).*", "\\1", period, perl = TRUE)))
+    if (is.na(y)) return(fallback)
+    if (!grepl("^FY", period)) y <- y - 1L   # IMF calendar year ~ the fiscal year ending in it
+    hit <- lims[lims$key == key & lims$from <= y & (is.na(lims$to) | y <= lims$to), ]
+    if (nrow(hit)) as.numeric(hit$value[1]) else fallback
+  }
   rows <- lapply(seq_len(nrow(EI_INDICATORS)), function(i) {
     ind <- EI_INDICATORS[i, ]
     if (!ind$key %in% names(y)) return(NULL)
@@ -245,7 +257,8 @@ ei_threshold_rows <- function() {
         v <- p$value; basis <- "present value"; period <- p$period
       }
     }
-    data.frame(Indicator = ind$name, Limit = ind$limit, Value = v, Period = period, Basis = basis, By = ind$by,
+    data.frame(Indicator = ind$name, Limit = if (ind$key == "deficit_to_gdp") ind$limit else limit_for(ind$key, period, ind$limit),
+               Value = v, Period = period, Basis = basis, By = ind$by,
                Face = face, FacePeriod = face_period, stringsAsFactors = FALSE)
   })
   t <- do.call(rbind, rows[!vapply(rows, is.null, logical(1))])
@@ -267,7 +280,7 @@ ei_render_thresholds <- function() {
   )
   cat(iea_fullwidth_table(tbl, raw_cols = "Status",
                           caption = "Kenya's debt indicators against their limits, latest figures (live)"))
-  cat("\n\\vspace{0.2em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} PV = present value, the basis the limits are set on; Face = face value. Limits: IMF--World Bank Debt Sustainability Framework thresholds for a medium debt-carrying capacity country; Public Finance Management Act anchor (55\\% of GDP, present value); East African Community convergence ceiling (deficit). Source: CBK, KNBS, National Treasury (debt service and present-value ratios); \\href{https://kenyadebtcounter.vercel.app/explore\\#chart-thresholds}{kenyadebtcounter.vercel.app}.}\n\\end{flushleft}\n\\vspace{0.2em}\n")
+  cat("\n\\vspace{0.2em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} PV = present value, the basis the limits are set on; Face = face value. Limits: IMF--World Bank Debt Sustainability Framework thresholds in force for each value's year (Kenya has been a medium debt-carrying capacity country since the April 2021 assessment; it was rated strong, with higher limits, before); Public Finance Management Act anchor (55\\% of GDP, present value, since October 2023); East African Community convergence ceiling (deficit). Source: CBK, KNBS, National Treasury (debt service and present-value ratios); \\href{https://kenyadebtcounter.vercel.app/explore\\#chart-thresholds}{kenyadebtcounter.vercel.app}.}\n\\end{flushleft}\n\\vspace{0.2em}\n")
   n <- sum(above)
   ei_text(sprintf(
     "On the latest figures Kenya is above the limit on \\textbf{%d of %d} indicators%s. The table above updates with the live data each day, whereas Table 4 reports the Treasury's own %s assessment; where the two differ (for example external debt to exports), it is because they come from different sources and years, so each value should be read with its Year column.",
