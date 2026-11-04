@@ -189,7 +189,7 @@ ei_render_service <- function() {
   long$fy <- factor(sub("^FY", "", long$fy), levels = sub("^FY", "", y$fiscal_year))
   ei_heading("Public Debt Service by Fiscal Year")
   ei_plot(ei_two_panel(long, EI_SITE$service))
-  ei_source("Controller of Budget, full-year National Government Budget Implementation Review Reports; KNBS GDP (fiscal-year average)")
+  ei_source("National Treasury, Annual Public Debt Reports; KNBS GDP (fiscal-year average)")
   last <- y[nrow(y), ]
   prev <- if (nrow(y) > 1) y[nrow(y) - 1, ] else NULL
   rev_share <- if (!is.null(last$revenue) && !is.na(last$revenue) && last$revenue > 0) last$total / last$revenue * 100 else NA
@@ -267,7 +267,7 @@ ei_render_thresholds <- function() {
   )
   cat(iea_fullwidth_table(tbl, raw_cols = "Status",
                           caption = "Kenya's debt indicators against their limits, latest figures (live)"))
-  cat("\n\\vspace{0.2em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} PV = present value, the basis the limits are set on; Face = face value. Limits: IMF--World Bank Debt Sustainability Framework thresholds for a medium debt-carrying capacity country; Public Finance Management Act anchor (55\\% of GDP, present value); East African Community convergence ceiling (deficit). Source: CBK, Controller of Budget, KNBS, National Treasury (present-value ratios); \\href{https://kenyadebtcounter.vercel.app/explore\\#chart-thresholds}{kenyadebtcounter.vercel.app}.}\n\\end{flushleft}\n\\vspace{0.2em}\n")
+  cat("\n\\vspace{0.2em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} PV = present value, the basis the limits are set on; Face = face value. Limits: IMF--World Bank Debt Sustainability Framework thresholds for a medium debt-carrying capacity country; Public Finance Management Act anchor (55\\% of GDP, present value); East African Community convergence ceiling (deficit). Source: CBK, KNBS, National Treasury (debt service and present-value ratios); \\href{https://kenyadebtcounter.vercel.app/explore\\#chart-thresholds}{kenyadebtcounter.vercel.app}.}\n\\end{flushleft}\n\\vspace{0.2em}\n")
   n <- sum(above)
   ei_text(sprintf(
     "On the latest figures Kenya is above the limit on \\textbf{%d of %d} indicators%s. The table above updates with the live data each day, whereas Table 4 reports the Treasury's own %s assessment; where the two differ (for example external debt to exports), it is because they come from different sources and years, so each value should be read with its Year column.",
@@ -418,13 +418,13 @@ ei_render_spending <- function() {
   if (!nrow(yc)) return(invisible(TRUE))
   last <- yc[nrow(yc), ]
   interest <- last$values$domestic_interest + last$values$foreign_interest
-  # Figure 7 takes interest from the Controller of Budget, this figure from
-  # CBK's government finance statistics; they differ, so name the other one.
+  # Figure 7 takes interest from the National Treasury, this figure from
+  # CBK's government finance statistics; if they differ, name the other one.
   cob_note <- tryCatch({
     sv <- ei_get("/api/debt/service")$years
     hit <- sv[sv$fiscal_year == last$fiscal_year, ]
     if (nrow(hit) && is.finite(hit$interest[1]) && abs(hit$interest[1] / interest - 1) > 0.02)
-      sprintf(" (CBK figures; the Controller of Budget, used in Figure 7, puts interest for the year at %s)", ei_amt(hit$interest[1]))
+      sprintf(" (CBK figures; the National Treasury, used in Figure 7, puts interest for the year at %s)", ei_amt(hit$interest[1]))
     else ""
   }, error = function(e) "")
   first <- yc[max(1, nrow(yc) - 9), ]
@@ -552,7 +552,7 @@ ei_excel_extend <- function(path) {
       col <- ei_xl_table(wb, sh, df, col, "Public debt service by fiscal year",
         c(" " = 1, "External (KSh billion)" = 2, "Domestic (KSh billion)" = 2, "Total" = 3),
         c("Fiscal year", "Principal", "Interest", "Principal", "Interest", "KSh billion", "% of GDP", "% of revenue"),
-        note = "Source: Controller of Budget, full-year National Government Budget Implementation Review Reports; KNBS GDP (fiscal-year average).",
+        note = "Source: National Treasury, Annual Public Debt Reports; KNBS GDP (fiscal-year average).",
         formats = list(ep = "#,##0.00", ei = "#,##0.00", dp = "#,##0.00", di = "#,##0.00", tot = "#,##0.00", gdp = "0.00", rev = "0.0"))
     }
     if (!is.null(th)) {
