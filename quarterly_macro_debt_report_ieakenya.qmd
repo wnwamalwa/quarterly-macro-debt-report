@@ -640,7 +640,7 @@ jsonlite::write_json(
 mtds_year   <- "2025/26"   # year of the Treasury's latest DSA assessment
 budget_year <- "2026/27"
 # Source of the DSA indicators and interest rates below.
-dsa_source  <- "National Treasury, Annual Public Debt Management Report 2025/26 (Tables 22--23, Figure 17)"
+dsa_source  <- "National Treasury, Annual Public Debt Report 2025/26 (Tables 22--23)"
 
 # Debt Sustainability Analysis thresholds vs latest assessed values -- the
 # FY 2025/26 ("2026") column of the Annual Public Debt Management Report
@@ -2162,7 +2162,7 @@ if (nrow(dsa_ext_br) == nrow(dsa_ext)) {
   ))
 }
 
-cat("\\item The external measures are assessed against exports or revenue rather than GDP, so they track the government's \\textit{capacity to pay}, not merely the size of the stock -- a narrow export base keeps them close to their limits.\n")
+cat("\\item The external measures are assessed against exports or revenue rather than GDP, so they track the government's \\textit{capacity to pay}, not merely the size of the stock.\n")
 
 cat("\\end{itemize}\n\n")
 ```
@@ -2207,7 +2207,7 @@ ggplot(wair_df, aes(x = Series, y = Rate, fill = Series)) +
 # its own table is carried here as a single line, computed from the same
 # live quarter-end row that drives Figures 1 to 3.
 cat(sprintf(
-  "\n\\vspace{0.1em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: National Treasury, Annual Public Debt Management Report %s. Weighted average interest rate by debt class.}\n\\end{flushleft}\n\\vspace{0.2em}\n",
+  "\n\\vspace{0.1em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: National Treasury, Annual Public Debt Report %s (weighted average interest rates).}\n\\end{flushleft}\n\\vspace{0.2em}\n",
   mtds_year
 ))
 
@@ -2240,7 +2240,7 @@ if (is.finite(dsa_stock_dom)) {
 }
 
 cat(sprintf(
-  "\\item \\textbf{Direction matters more than level.} A stock growing at the pace of Figure 1, increasingly financed domestically at %.1f\\%%, lifts the servicing bill faster than the stock itself%s. The Treasury projects the present value of debt will still be above the 55\\%% benchmark in \\textbf{%s}.\n",
+  "\\item \\textbf{Direction matters more than level.} A stock growing at the pace of Figure 1, increasingly financed domestically at %.1f\\%%, lifts the servicing bill faster than the stock itself%s. PV debt is projected above the 55\\%% benchmark through \\textbf{%s}.\n",
   wair_domestic,
   if (any(dsa_indicators$Latest[3:4] > dsa_indicators$Threshold[3:4]))
     " -- which is why debt service is breaching its limits alongside the debt-to-GDP ratio" else "",
@@ -2508,8 +2508,9 @@ if (has_composition) {
 This report draws on publicly available data published by:
 
 - **Central Bank of Kenya (CBK)** — monthly and quarterly public debt statistics, the Weekly Bulletin (latest domestic debt and external debt in US dollars), daily exchange rates, government revenue and expenditure
-- **The National Treasury** — budget execution reports, fiscal outturns, cost of debt
-- **Office of the Controller of Budget (OCOB)** — National Government Budget Implementation Review Reports: debt service, external debt by currency, domestic debt by instrument
+- **The National Treasury** — Annual Public Debt Reports (debt service, debt sustainability indicators, cost of debt), budget execution reports, fiscal outturns
+- **Office of the Controller of Budget (OCOB)** — National Government Budget Implementation Review Reports: external debt by currency, domestic debt by instrument
+- **IMF and World Bank** — joint Debt Sustainability Analyses for Kenya: the thresholds Kenya is judged against, by period
 - **Kenya National Bureau of Statistics (KNBS)** — GDP, national accounts, population estimates
 
 Data is ingested via Google Sheets and the Kenya Debt Counter's public API (kenyadebtcounter.vercel.app), processed in R, and rendered using Quarto with XeLaTeX. The report is regenerated automatically through GitHub Actions whenever the underlying data or analysis is updated.
