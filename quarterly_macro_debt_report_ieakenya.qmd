@@ -637,23 +637,29 @@ jsonlite::write_json(
 # here rather than fetched. They are defined early because both the Figure 3
 # commentary and the Debt Sustainability Analysis section read from them.
 # UPDATE THIS BLOCK when a new MTDS, Budget Estimates or GDP release lands.
-mtds_year   <- "2026"
+mtds_year   <- "2025/26"   # year of the Treasury's latest DSA assessment
 budget_year <- "2026/27"
+# Source of the DSA indicators and interest rates below.
+dsa_source  <- "National Treasury, Annual Public Debt Management Report 2025/26 (Tables 22--23, Figure 17)"
 
-# Debt Sustainability Analysis thresholds vs latest assessed values (MTDS).
+# Debt Sustainability Analysis thresholds vs latest assessed values -- the
+# FY 2025/26 ("2026") column of the Annual Public Debt Management Report
+# 2025/26. (The previous values, 65.3 / 182.2 / 22.5 / 20.6, were that
+# report's 2025 column, mislabelled here as 2026.)
 dsa_indicators <- data.frame(
   Indicator = c("PV of Public Debt / GDP",
                 "PV of External Debt / Exports",
                 "External Debt Service / Exports",
                 "External Debt Service / Revenue"),
   Threshold = c(55.0, 180.0, 15.0, 18.0),
-  Latest    = c(65.3, 182.2, 22.5, 20.6),
+  Latest    = c(65.6, 167.5, 18.3, 17.6),
   stringsAsFactors = FALSE, check.names = FALSE
 )
 
-# Weighted average interest rate on each debt class (MTDS).
-wair_domestic <- 13.0
-wair_external <- 3.9
+# Weighted average interest rate on each debt class, FY 2025/26 (Annual
+# Public Debt Management Report 2025/26, Figure 17; 13.0 / 3.9 were FY 2024/25).
+wair_domestic <- 12.6
+wair_external <- 4.4
 
 # Share of the year's debt service budget, and its total (Budget Estimates).
 service_domestic_share <- 70.6
@@ -668,10 +674,14 @@ pending_bills_trillion <- 0.8
 # Latest real GDP growth. Preferred from the Google Sheet's GDP Growth Rate
 # indicator when it is present; this declared value is the fallback.
 # >>> CONFIRM against the latest KNBS release before publishing. <<<
-real_gdp_growth_fallback <- 4.7
+# FY 2025/26: 5.1% in Table 3 of the Annual Public Debt Management Report
+# 2025/26 (its text says 5.3%).
+real_gdp_growth_fallback <- 5.1
 
-# MTDS projection horizon quoted in the closing narrative.
-mtds_above_benchmark_until <- "2029"
+# Projection horizon quoted in the closing narrative: the Annual Public Debt
+# Management Report 2025/26 projects PV debt/GDP at 62.1% in 2030, its last
+# projection year -- still above the 55% benchmark.
+mtds_above_benchmark_until <- "2030"
 ```
 
 \vspace{-1.2em}
@@ -2077,9 +2087,17 @@ dsa_live_ratio <- if (exists("debt_gdp_summary_ok") && isTRUE(debt_gdp_summary_o
 }
 
 cat(sprintf(
-  "Figures 1 to 3 describe a debt stock growing in absolute terms, per person, and relative to the economy that must service it%s. The National Treasury tests whether that burden remains sustainable through a Debt Sustainability Analysis (DSA); on the %s assessment, all four headline indicators have been breached.\n\n",
+  "Figures 1 to 3 describe a debt stock growing in absolute terms, per person, and relative to the economy that must service it%s. The National Treasury tests whether that burden remains sustainable through a Debt Sustainability Analysis (DSA); on its FY %s assessment, %s.\n\n",
   if (!is.na(dsa_live_ratio)) sprintf(" -- reaching %s of GDP", dsa_live_ratio) else "",
-  mtds_year
+  mtds_year,
+  {
+    nb <- sum(dsa_indicators$Latest > dsa_indicators$Threshold)
+    words <- c("none", "one", "two", "three", "all four")
+    if (nb == 0) "none of the four headline indicators is above its threshold"
+    else if (nb == nrow(dsa_indicators)) "all four headline indicators are above their thresholds"
+    else sprintf("%s of the four headline indicators %s above %s threshold%s",
+                 words[nb + 1], if (nb == 1) "is" else "are", if (nb == 1) "its" else "their", if (nb == 1) "" else "s")
+  }
 ))
 ```
 
@@ -2090,7 +2108,7 @@ dsa_threshold_table <- data.frame(
   Indicator = dsa_indicators$Indicator,
   Threshold = sprintf("%.0f%%", dsa_indicators$Threshold),
   `Latest Value` = sprintf("%.1f%%", dsa_indicators$Latest),
-  Excess = sprintf("+%.1f pp", dsa_indicators$Latest - dsa_indicators$Threshold),
+  `vs Threshold` = sprintf("%+.1f pp", dsa_indicators$Latest - dsa_indicators$Threshold),
   Status = ifelse(dsa_indicators$Latest > dsa_indicators$Threshold,
                   "\\textcolor{iearedflag}{\\textbf{Breached}}",
                   "\\textcolor{ieagreen}{\\textbf{Within}}"),
@@ -2099,11 +2117,11 @@ dsa_threshold_table <- data.frame(
 
 cat(iea_fullwidth_table(
   dsa_threshold_table, raw_cols = "Status",
-  caption = sprintf("Debt sustainability indicators against thresholds, %s", mtds_year)
+  caption = sprintf("Debt sustainability indicators against thresholds, FY %s", mtds_year)
 ))
 cat(sprintf(
-  "\n\\vspace{0.1em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: National Treasury, Medium Term Debt Strategy (MTDS), %s.}\n\\end{flushleft}\n\\vspace{0.2em}\n",
-  mtds_year
+  "\n\\vspace{0.1em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: %s.}\n\\end{flushleft}\n\\vspace{0.2em}\n",
+  iea_tex_escape(dsa_source)
 ))
 ```
 
@@ -2112,21 +2130,39 @@ cat(sprintf(
 # bullets: the tight list keeps the whole section on one page, and doing it
 # here rather than globally leaves every other list in the report untouched.
 dsa_worst <- dsa_indicators[which.max(dsa_indicators$Latest / dsa_indicators$Threshold), ]
+dsa_ext    <- dsa_indicators[-1, ]
+dsa_ext_br <- dsa_ext[dsa_ext$Latest > dsa_ext$Threshold, ]
+dsa_ext_ok <- dsa_ext[dsa_ext$Latest <= dsa_ext$Threshold, ]
+dsa_list   <- function(d) {
+  x <- sprintf("%s (\\textbf{%.1f\\%%} against %.0f\\%%)", d$Indicator, d$Latest, d$Threshold)
+  if (length(x) <= 1) x else paste(paste(x[-length(x)], collapse = ", "), "and", x[length(x)])
+}
 
 cat("\\begin{itemize}[noitemsep, topsep=1pt, leftmargin=1.4em]\n")
 
+pv_gap <- dsa_indicators$Latest[1] - dsa_indicators$Threshold[1]
 cat(sprintf(
-  "\\item The present value of public debt stands at \\textbf{%.1f\\%% of GDP} against a \\textbf{%.0f\\%%} benchmark -- an overshoot of \\textbf{%.1f percentage points}.\n",
+  "\\item The present value of public debt stands at \\textbf{%.1f\\%% of GDP} against a \\textbf{%.0f\\%%} benchmark -- %s of \\textbf{%.1f percentage points}.\n",
   dsa_indicators$Latest[1], dsa_indicators$Threshold[1],
-  dsa_indicators$Latest[1] - dsa_indicators$Threshold[1]
+  if (pv_gap > 0) "an overshoot" else "a margin", abs(pv_gap)
 ))
 
-cat(sprintf(
-  "\\item All three external indicators are also breached, with \\textbf{%s} furthest beyond its limit at \\textbf{%.1f\\%%} against \\textbf{%.0f\\%%}.\n",
-  dsa_worst$Indicator, dsa_worst$Latest, dsa_worst$Threshold
-))
+if (nrow(dsa_ext_br) == nrow(dsa_ext)) {
+  cat(sprintf(
+    "\\item All three external indicators are also breached, with \\textbf{%s} furthest beyond its limit at \\textbf{%.1f\\%%} against \\textbf{%.0f\\%%}.\n",
+    dsa_worst$Indicator, dsa_worst$Latest, dsa_worst$Threshold
+  ))
+} else if (nrow(dsa_ext_br) == 0) {
+  cat(sprintf("\\item All three external indicators are within their limits: %s.\n", dsa_list(dsa_ext_ok)))
+} else {
+  cat(sprintf(
+    "\\item Among the external indicators, %s %s above %s limit, while %s %s back within %s.\n",
+    dsa_list(dsa_ext_br), if (nrow(dsa_ext_br) == 1) "is" else "are", if (nrow(dsa_ext_br) == 1) "its" else "their",
+    dsa_list(dsa_ext_ok), if (nrow(dsa_ext_ok) == 1) "is" else "are", if (nrow(dsa_ext_ok) == 1) "its" else "theirs"
+  ))
+}
 
-cat("\\item Every breached measure except the first is assessed against exports or revenue rather than GDP, so the strain falls directly on the government's \\textit{capacity to pay}, not merely on the size of the stock.\n")
+cat("\\item The external measures are assessed against exports or revenue rather than GDP, so they track the government's \\textit{capacity to pay}, not merely the size of the stock -- a narrow export base keeps them close to their limits.\n")
 
 cat("\\end{itemize}\n\n")
 ```
@@ -2171,7 +2207,7 @@ ggplot(wair_df, aes(x = Series, y = Rate, fill = Series)) +
 # its own table is carried here as a single line, computed from the same
 # live quarter-end row that drives Figures 1 to 3.
 cat(sprintf(
-  "\n\\vspace{0.1em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: National Treasury, MTDS %s. Weighted average interest rate by debt class.}\n\\end{flushleft}\n\\vspace{0.2em}\n",
+  "\n\\vspace{0.1em}\n\\begin{flushleft}\n{\\scriptsize\\color{gray} Source: National Treasury, Annual Public Debt Management Report %s. Weighted average interest rate by debt class.}\n\\end{flushleft}\n\\vspace{0.2em}\n",
   mtds_year
 ))
 
@@ -2204,8 +2240,11 @@ if (is.finite(dsa_stock_dom)) {
 }
 
 cat(sprintf(
-  "\\item \\textbf{Direction matters more than level.} A stock growing at the pace of Figure 1, increasingly financed domestically at %.1f\\%%, lifts the servicing bill faster than the stock itself -- which is why the debt service indicators are breached alongside the debt-to-GDP ratio. The MTDS projects the ratio will stay above benchmark until at least \\textbf{%s}.\n",
-  wair_domestic, mtds_above_benchmark_until
+  "\\item \\textbf{Direction matters more than level.} A stock growing at the pace of Figure 1, increasingly financed domestically at %.1f\\%%, lifts the servicing bill faster than the stock itself%s. The Treasury projects the present value of debt will still be above the 55\\%% benchmark in \\textbf{%s}.\n",
+  wair_domestic,
+  if (any(dsa_indicators$Latest[3:4] > dsa_indicators$Threshold[3:4]))
+    " -- which is why debt service is breaching its limits alongside the debt-to-GDP ratio" else "",
+  mtds_above_benchmark_until
 ))
 
 cat("\\end{itemize}\n\n")
