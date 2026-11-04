@@ -674,9 +674,11 @@ pending_bills_trillion <- 0.8
 # Latest real GDP growth. Preferred from the Google Sheet's GDP Growth Rate
 # indicator when it is present; this declared value is the fallback.
 # >>> CONFIRM against the latest KNBS release before publishing. <<<
-# FY 2025/26: 5.1% in Table 3 of the Annual Public Debt Management Report
-# 2025/26 (its text says 5.3%).
-real_gdp_growth_fallback <- 5.1
+# KNBS Economic Survey 2026: real GDP grew 4.6% in 2025 (4.7% in 2024). KNBS
+# is the official source; the Treasury's Annual Public Debt Report 2025/26
+# gives 5.1% (Table 3) and 5.3% (text) for FY 2025/26.
+real_gdp_growth_fallback <- 4.6
+real_gdp_growth_label    <- "in 2025 (KNBS)"
 
 # Projection horizon quoted in the closing narrative: the Annual Public Debt
 # Management Report 2025/26 projects PV debt/GDP at 62.1% in 2030, its last
@@ -2054,6 +2056,7 @@ real_growth <- if (exists("has_gdp_g") && isTRUE(has_gdp_g)) {
   real_gdp_growth_fallback
 }
 if (!is.finite(real_growth)) real_growth <- real_gdp_growth_fallback
+real_growth_note <- if (isTRUE(all.equal(real_growth, real_gdp_growth_fallback))) paste0(" ", real_gdp_growth_label) else ""
 
 # Optional clauses, kept out of the bullet text so each bullet is one call.
 frag_pend <- if (gdp3_ok) sprintf(" (about %s of GDP)", pct(pending_pct_gdp)) else ""
@@ -2076,8 +2079,8 @@ cat(sprintf(
 ))
 
 cat(sprintf(
-  "\\item \\textbf{Growth is too slow to outrun the servicing bill.} Real growth of about \\textbf{%s} cannot generate the revenue to cover the \\textbf{KSh %.1f trillion} of debt service budgeted for FY %s%s. While borrowing outpaces output, servicing absorbs a rising share of revenue and crowds out development spending.\n",
-  pct(real_growth), service_total_trillion, budget_year, frag_grow
+  "\\item \\textbf{Growth is too slow to outrun the servicing bill.} Real growth of about \\textbf{%s}%s cannot generate the revenue to cover the \\textbf{KSh %.1f trillion} of debt service budgeted for FY %s%s. While borrowing outpaces output, servicing absorbs a rising share of revenue and crowds out development spending.\n",
+  pct(real_growth), real_growth_note, service_total_trillion, budget_year, frag_grow
 ))
 
 cat("\\end{itemize}\n\n")

@@ -192,7 +192,7 @@ ei_render_service <- function() {
   long$fy <- factor(sub("^FY", "", long$fy), levels = sub("^FY", "", y$fiscal_year))
   ei_heading("Public Debt Service by Fiscal Year")
   ei_plot(ei_two_panel(long, EI_SITE$service))
-  ei_source("National Treasury, Annual Public Debt Reports; KNBS GDP (fiscal-year average)",
+  ei_source("National Treasury, Annual Public Debt Reports; KNBS GDP (fiscal-year GDP, the June value)",
             ei_wide(long), "figure-07-debt-service")
   last <- y[nrow(y), ]
   prev <- if (nrow(y) > 1) y[nrow(y) - 1, ] else NULL
@@ -418,7 +418,7 @@ ei_render_tax <- function() {
   if (is.null(long)) return(invisible(FALSE))
   ei_heading("Tax Revenue and Grants by Fiscal Year")
   ei_plot(ei_two_panel(long, setNames(EI_SITE$tax, labs)))
-  ei_source("Central Bank of Kenya, government finance statistics; KNBS GDP (fiscal-year average). Complete fiscal years",
+  ei_source("Central Bank of Kenya, government finance statistics; KNBS GDP (fiscal-year GDP, the June value). Complete fiscal years",
             ei_wide(long), "figure-09-tax-revenue")
   yc <- y[y$complete, ]
   yc <- yc[order(yc$fy_start), ]
@@ -449,7 +449,7 @@ ei_render_spending <- function() {
   if (is.null(long)) return(invisible(FALSE))
   ei_heading("Government Spending by Type")
   ei_plot(ei_two_panel(long, setNames(EI_SITE$spend, labs), legend_rows = 2))
-  ei_source("Central Bank of Kenya, government finance statistics; KNBS GDP (fiscal-year average). Complete fiscal years",
+  ei_source("Central Bank of Kenya, government finance statistics; KNBS GDP (fiscal-year GDP, the June value). Complete fiscal years",
             ei_wide(long), "figure-10-government-spending")
   yc <- y[y$complete, ]
   yc <- yc[order(yc$fy_start), ]
@@ -590,7 +590,7 @@ ei_excel_extend <- function(path) {
       col <- ei_xl_table(wb, sh, df, col, "Public debt service by fiscal year",
         c(" " = 1, "External (KSh billion)" = 2, "Domestic (KSh billion)" = 2, "Total" = 3),
         c("Fiscal year", "Principal", "Interest", "Principal", "Interest", "KSh billion", "% of GDP", "% of revenue"),
-        note = "Source: National Treasury, Annual Public Debt Reports; KNBS GDP (fiscal-year average).",
+        note = "Source: National Treasury, Annual Public Debt Reports; KNBS GDP (fiscal-year GDP, the June value).",
         formats = list(ep = "#,##0.00", ei = "#,##0.00", dp = "#,##0.00", di = "#,##0.00", tot = "#,##0.00", gdp = "0.00", rev = "0.0"))
     }
     if (!is.null(th)) {
@@ -666,7 +666,7 @@ ei_excel_extend <- function(path) {
     ei_xl_table(wb, sh, out, 1, "Revenue, spending and the deficit by fiscal year (KSh billion unless shown)",
       c(" " = 2, "Tax revenue and grants" = 8, "Spending by type" = 10, "Deficit (all revenue)" = 2),
       labels,
-      note = "Source: Central Bank of Kenya, Revenue and Expenditure (government finance statistics); KNBS GDP (fiscal-year average). Deficit = spending minus all revenue (taxes, non-tax revenue) and grants, CBK's 12 months to June.",
+      note = "Source: Central Bank of Kenya, Revenue and Expenditure (government finance statistics); KNBS GDP (fiscal-year GDP, the June value). Deficit = spending minus all revenue (taxes, non-tax revenue) and grants, CBK's 12 months to June.",
       formats = fm)
     openxlsx::freezePane(wb, sh, firstActiveRow = 4, firstActiveCol = 3)
     added <- c(added, sh)
