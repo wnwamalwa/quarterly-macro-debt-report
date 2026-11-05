@@ -766,8 +766,14 @@ current_snapshot <- tryCatch({
 
 append_current_with_interpolation <- function(hist_df, current) {
   if (is.null(current)) return(hist_df)
+  # The live figure (what the counter shows at render time) always wins for
+  # its own date: /api/debt/historical's row for today is written by the
+  # pipeline every few hours, so it can lag the counter (on 5 Nov 2026 it
+  # gave KSh 13.69 T against the counter's 13.71 T). Drop historical rows on
+  # or after the live figure's date and draw the line to the live figure.
+  hist_df <- hist_df[hist_df$Quarter < current$date, ]
+  if (!nrow(hist_df)) return(hist_df)
   last_date <- max(hist_df$Quarter)
-  if (current$date <= last_date) return(hist_df)  # nothing newer to add
 
   last_row <- hist_df[hist_df$Quarter == last_date, ][1, ]
 
