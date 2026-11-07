@@ -5,10 +5,13 @@ on:
     branches: [ main ]
   workflow_dispatch:
   schedule:
-    # Every day at 05:17 Nairobi time (02:17 UTC), so the "As at" figures are
-    # today's. The report covers the last COMPLETED quarter, so a new edition
-    # (Q4 2026, Q1 2027 ...) starts automatically on 1 Jan/Apr/Jul/Oct.
-    - cron: '17 2 * * *'
+    # Three times a day, at about 06:17, 12:17 and 19:17 Nairobi time (03:17,
+    # 09:17 and 16:17 UTC): GitHub often starts scheduled runs hours late, so
+    # one daily run left the report a day behind. The later runs also pick up
+    # a counter update made earlier in the day. The report covers the last
+    # COMPLETED quarter, so a new edition (Q4 2026, Q1 2027 ...) starts
+    # automatically on 1 Jan/Apr/Jul/Oct.
+    - cron: '17 3,9,16 * * *'
 
 concurrency:
   group: render-report
